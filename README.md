@@ -1,0 +1,317 @@
+<div align="center">
+
+# STUDENT 360
+### Academic Intelligence Platform
+
+![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
+![Vite](https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)
+![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=20232A)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-0F172A?style=for-the-badge&logo=tailwindcss&logoColor=38BDF8)
+
+STUDENT 360 is a modern, premium web application designed to monitor and analyze student performance, behavior, and extracurricular activities (like GitHub contributions) at an institutional level. Built with React and Vite, the platform features a sleek, futuristic dark-and-orange UI with fluid animations and rich data visualization.
+
+[![Watch the demo](https://img.shields.io/badge/Ã¢â€“Â¶_WATCH_THE_DEMO-F97316?style=for-the-badge)](Documentation%20%26%20Demo/Video%20Demo/captioned%20%26%20voiceover%20video%20demo..mp4)
+[![Exam client](https://img.shields.io/badge/DESKTOP_EXAM_CLIENT-282C34?style=for-the-badge&logo=electron&logoColor=9FEAF9)](https://github.com/lokeshkodamanchili/STUDENT-360-ELECTRON-APP)
+
+[Features](#features) Ã‚Â· [Tech Stack](#tech-stack) Ã‚Â· [Getting Started](#getting-started) Ã‚Â· [Firebase](#firebase-setup) Ã‚Â· [Demo Video](#demo-video)
+
+</div>
+
+---
+
+<a id="features"></a>
+
+## Ã°Å¸Å¡â‚¬ Features
+
+### Ã°Å¸Å½â€œ Student Portal
+
+| Feature | Description |
+| :--- | :--- |
+| **Dashboard** | At-a-glance view of academic standing, recent scores, and upcoming exams. |
+| **GitHub Analysis** | Deep dive into individual coding activity, language distribution, and commit heatmaps. |
+| **Academic Records** | Detailed tracking of test scores, historical results, and GPA. |
+| **Behavior & Gamification** | Monitor rule violations and earn achievement badges for academic and extracurricular excellence. |
+
+### Ã°Å¸â€ºÂ¡Ã¯Â¸Â Admin Portal
+
+| Feature | Description |
+| :--- | :--- |
+| **Institution Overview** | High-level metrics on total students, average scores, and active alerts. |
+| **Student Management** | Detailed directory of all enrolled students with search and filtering. |
+| **GitHub Leaderboard** | Track and compare the coding contributions of all linked students across the institution. |
+| **Exam & Result Management** | Oversee upcoming test schedules and publish results. |
+| **Disciplinary Action** | Log and monitor student violations with severity tracking. |
+
+---
+
+<a id="tech-stack"></a>
+
+## Ã°Å¸â€™Â» Tech Stack
+
+- **Frontend Framework:** React, Vite
+- **Styling:** Tailwind CSS v4, Custom CSS Variables
+- **Animations:** Framer Motion
+- **Data Visualization:** Recharts
+- **Icons:** Lucide React
+- **Routing:** React Router DOM
+
+---
+
+<a id="getting-started"></a>
+
+## Ã°Å¸â€ºÂ Ã¯Â¸Â Getting Started
+
+### Prerequisites
+
+- Node.js (v18 or higher recommended)
+- npm or yarn
+- Firebase project with Firestore database
+- (Optional) Power Automate webhook URL for email notifications
+- (Optional) GitHub personal access token for higher API rate limits
+
+### Installation
+
+1. Clone the repository and navigate to the project folder:
+   ```bash
+   git clone https://github.com/kesavakantipudi/STUDENT-360.git
+   cd Student-360TestingApp-main
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Configure environment variables:
+   ```bash
+   cp .env.example .env.local
+   ```
+
+4. Configure MongoDB and authentication secrets in `.env.local` (server-side only; do not use a `VITE_` prefix):
+   ```env
+   MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>/<database>
+   MONGODB_DB_NAME=student360
+   JWT_SECRET=<long-random-secret>
+   ADMIN_BOOTSTRAP_TOKEN=<one-time-random-token>
+   ```
+   Add the same values to the Vercel project environment before deployment.
+
+### Import existing Firebase documents
+
+The old Firebase documents can be copied with `npm run migrate:firebase` after placing the Firebase Admin service account at `scripts/serviceAccountKey.json`. The script upserts documents by their Firebase document IDs into MongoDB. Firebase Authentication passwords cannot be exported; users need MongoDB credentials provisioned separately.
+
+5. Start the development server:
+   ```bash
+   npm run dev
+   ```
+
+6. Open your browser and navigate to `http://localhost:5173`.
+
+---
+
+## Ã°Å¸Å½Â¨ UI/UX Philosophy
+
+The UI was explicitly designed to break away from traditional, sterile educational software. It utilizes a **Premium Dark/Orange Theme** featuring:
+- Glassmorphism effects and ambient glowing backgrounds.
+- Pill-shaped components and smooth hover micro-interactions.
+- Standardized, spacious grid layouts to ensure dense data readability without cognitive overload.
+
+---
+
+<a id="firebase-setup"></a>
+
+## Ã°Å¸â€Â¥ Firebase Setup
+
+### Creating a Firestore Database
+
+1. Go to [Firebase Console](https://console.firebase.google.com)
+2. Create a new project or select an existing one
+3. Enable Firestore Database:
+   - Click "Firestore Database" in the sidebar
+   - Click "Create Database"
+   - Choose "Start in production mode"
+4. Get your credentials:
+   - Go to Project Settings (Ã¢Å¡â„¢Ã¯Â¸Â icon)
+   - Click "Service Accounts"
+   - Download JSON key for backend operations
+   - Go to "General" tab and find your web app config
+
+### Firestore Collections
+
+The app expects the following collections:
+
+- **students** - Student profiles with GitHub usernames
+- **results** - Exam results and scores
+- **exams** - Exam information and schedules
+- **examInvites** - Unique exam invitation codes (for preventing duplicates)
+- **violations** - Student behavior violations
+- **achievements** - Student achievement badges
+
+---
+
+## Ã°Å¸â€â€” Result Submission API (Electron App Integration)
+
+The platform supports result submission from Electron-based exam applications. Results are automatically stored in Firestore and made available in the admin and student portals.
+
+### API Endpoints
+
+- **POST** `/api/submit-result` - Submit exam results from Electron app
+- **GET** `/api/results/student/{rollNo}` - Get results for a specific student
+- **GET** `/api/results/exam/{examId}` - Get results for a specific exam
+
+### Result Data Structure
+
+```javascript
+{
+  rollNo: "12345",           // Student roll number
+  studentName: "John Doe",   // Student full name
+  subject: "Data Structures", // Exam subject
+  marks: 85,                 // Marks obtained
+  totalMarks: 100,           // Total marks
+  examId: "exam_001",        // Unique exam identifier
+  examTitle: "DS Mid-term",  // Exam title
+  startTime: "2024-01-15T10:00:00Z", // ISO timestamp
+  endTime: "2024-01-15T11:30:00Z",   // ISO timestamp
+  answers: [                 // Array of question answers
+    {
+      questionId: "q1",
+      answer: "A",
+      correct: true,
+      timeSpent: 120
+    }
+  ],
+  violations: [              // Array of exam violations
+    {
+      type: "tab_switch",
+      timestamp: "2024-01-15T10:15:00Z",
+      description: "Switched to another tab"
+    }
+  ]
+}
+```
+
+### Electron App Integration Example
+
+```javascript
+// Submit result from Electron app
+const submitResult = async (resultData) => {
+  const response = await fetch('https://your-domain.vercel.app/api/submit-result', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(resultData)
+  });
+  
+  const result = await response.json();
+  return result; // { success: true, resultId: "..." }
+};
+```
+
+### Result Processing
+
+- **Automatic Grading:** Grades (A+, A, B+, etc.) are calculated based on percentage
+- **Status Calculation:** Pass/Fail status based on 40% threshold
+- **Student History:** Results are added to student's exam history
+- **Source Tracking:** Results from Electron apps are marked with `source: 'electron_app'`
+
+---
+
+## Ã°Å¸Å¡â‚¬ Deployment
+
+### Deploy to Vercel
+
+1. Connect your GitHub repository to Vercel
+2. In Vercel project settings, add environment variables:
+   - `VITE_POWER_AUTOMATE_URL` (optional)
+   - `VITE_GITHUB_TOKEN` (optional)
+
+3. Push to `main` branch to trigger automatic deployment
+4. Vercel will build and deploy your app automatically
+
+---
+
+## Ã°Å¸â€Â Security Features
+
+- **Environment Variables:** Sensitive credentials stored in environment variables, not hardcoded
+- **MongoDB API:** Database credentials stay on the server and protected routes require a signed session token
+- **API Security:** Removed insecure SSL bypass, uses standard HTTPS
+- **GitHub Token:** Optional token support for higher GitHub API rate limits
+- **Power Automate Integration:** Secure webhook-based email notifications
+
+---
+
+## Ã°Å¸â€œÂ¦ Available Scripts
+
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run preview` - Preview production build locally
+- `npm run lint` - Run ESLint
+
+---
+
+## Ã°Å¸â€œâ€š Project Structure
+
+```
+src/
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ components/
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ shared/          # Reusable components
+Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ ...
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ pages/
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ admin/           # Admin-only pages
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ student/         # Student-only pages
+Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ auth/            # Authentication pages
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ firebase/            # Firebase configuration
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ context/             # React Context (Auth, App state)
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ routes/              # Protected routes
+Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ utils/               # Helper functions
+```
+
+---
+
+## Ã°Å¸Â¤Â Contributing
+
+Contributions are welcome! Please follow these steps:
+
+1. Create a new branch: `git checkout -b feature/your-feature`
+2. Make your changes and commit: `git commit -m 'Add your feature'`
+3. Push to the branch: `git push origin feature/your-feature`
+4. Open a Pull Request
+
+---
+
+## Ã°Å¸â€œÂ License
+
+This project is licensed under the MIT License.
+
+---
+
+## Ã°Å¸Å½Â¯ Future Enhancements
+
+- [ ] Advanced analytics dashboard
+- [ ] Machine learning-based student performance predictions
+- [ ] Mobile app (React Native)
+- [ ] Real-time notifications
+- [ ] Custom report generation
+- [ ] Multi-language support
+
+---
+
+<a id="demo-video"></a>
+
+## Ã°Å¸Å½Â¬ Demo Video
+
+[![Watch the demo](https://img.shields.io/badge/WATCH_THE_VIDEO_DEMO-F97316?style=for-the-badge&logo=youtube&logoColor=white)](Documentation%20%26%20Demo/Video%20Demo/captioned%20%26%20voiceover%20video%20demo..mp4)
+
+**[Watch the captioned & voiceover video demo](Documentation%20%26%20Demo/Video%20Demo/captioned%20%26%20voiceover%20video%20demo..mp4)**
+
+[Go to Video Demo](https://github.com/lokeshkodamanchili/STUDENT-360/tree/main/Documentation%20%26%20Demo/Video%20Demo)
+
+---
+
+## Ã°Å¸â€™Â» Integrated Exam Client (Electron App)
+
+The Student 360 platform integrates seamlessly with a desktop-based exam application. This client application is used by students to securely take exams, while automatically logging violations and submitting grades directly to the database.
+
+* **Ã°Å¸Å½Â® Desktop Exam Client Repository:** [STUDENT-360-ELECTRON-APP](https://github.com/lokeshkodamanchili/STUDENT-360-ELECTRON-APP)
+  *Features include a distraction-free exam window, voice and camera checks, tab-switch proctor alerts, and automatic result submission via HTTP POST endpoints.*
+
+---

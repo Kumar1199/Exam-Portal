@@ -1,0 +1,3 @@
+import { MongoClient } from 'mongodb';
+if(!process.env.MONGODB_URI) throw new Error('Set MONGODB_URI.'); const client=new MongoClient(process.env.MONGODB_URI);
+try { await client.connect(); const students=await client.db(process.env.MONGODB_DB_NAME||'student360').collection('students').find({}, {projection:{githubUsername:1}}).toArray(); console.log(`Found ${students.length} students; ${students.filter(s=>s.githubUsername).length} have githubUsername.`); } finally { await client.close(); }

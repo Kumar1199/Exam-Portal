@@ -1,0 +1,7 @@
+problem_id,title,description,input_format,output_format,constraints,marks,test_input,expected_output,visibility
+P1,Sum of two integers,Read two integers and print their sum.,Two space-separated integers a and b.,Print a single integer.,-1000000 <= a and b <= 1000000,10,2 3,5,sample
+P1,,,,,,10,-4 4,0,hidden
+P1,,,,,,10,1000000 1000000,2000000,hidden
+P2,Sum an array,Read n and then n integers. Print their sum.,First line n. Second line n integers.,Print the sum.,1 <= n <= 1000,10,3\n1 2 3,6,sample
+P2,,,,,,10,1\n-7,-7,hidden
+P2,,,,,,10,4\n0 -2 2 10,10,hidden

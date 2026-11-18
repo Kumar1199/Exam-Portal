@@ -1,0 +1,4 @@
+import { MongoClient } from 'mongodb';
+import students from './students.json' with { type: 'json' };
+if(!process.env.MONGODB_URI) throw new Error('Set MONGODB_URI.'); const client=new MongoClient(process.env.MONGODB_URI);
+try { await client.connect(); const c=client.db(process.env.MONGODB_DB_NAME||'student360').collection('students'); let updated=0; for(const item of students){const rollNo=String(item.roll_no||item.rollNo||'').toUpperCase(); if(!rollNo) continue; const existing=await c.findOne({$or:[{_id:rollNo},{rollNo}]}); if(existing&&!existing.email&&item.email){await c.updateOne({_id:existing._id},{$set:{email:item.email}});updated++;}} console.log(`Updated ${updated} existing student emails.`); } finally { await client.close(); }

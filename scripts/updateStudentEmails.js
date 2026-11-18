@@ -1,0 +1,3 @@
+import { MongoClient } from 'mongodb';
+if(!process.env.MONGODB_URI) throw new Error('Set MONGODB_URI.'); const client=new MongoClient(process.env.MONGODB_URI);
+try { await client.connect(); const c=client.db(process.env.MONGODB_DB_NAME||'student360').collection('students'); const docs=await c.find({rollNo:{$exists:true},$or:[{email:{$exists:false}},{email:''}]}).toArray(); for(const s of docs) await c.updateOne({_id:s._id},{$set:{email:`${String(s.rollNo).toLowerCase()}@s360.edu`}}); console.log(`Added emails to ${docs.length} students.`); } finally { await client.close(); }

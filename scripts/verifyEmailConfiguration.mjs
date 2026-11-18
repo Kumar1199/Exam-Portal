@@ -1,0 +1,17 @@
+import fs from 'node:fs';
+import { loadEnv } from 'vite';
+const env=loadEnv('development',process.cwd(),'');
+const key=env.BREVO_API_KEY;
+if(!key)throw new Error('BREVO_API_KEY is missing.');
+const walk=directory=>fs.readdirSync(directory,{withFileTypes:true}).flatMap(entry=>entry.isDirectory()?walk(`${directory}/${entry.name}`):[`${directory}/${entry.name}`]);
+if(walk('dist').some(file=>fs.readFileSync(file).includes(Buffer.from(key))))throw new Error('A server secret was found in the client build.');
+const accounts=JSON.parse(fs.readFileSync('fresh-credentials.local','utf8'));
+const admin=accounts.find(account=>account.role==='admin');
+if(!admin)throw new Error('No local admin credential available for this verification.');
+const response=await fetch('http://127.0.0.1:5173/api/proxy?path=auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:admin.email,password:admin.password})});
+if(!response.ok)throw new Error('Could not authenticate local admin.');
+const {token}=await response.json();
+const status=await fetch('http://127.0.0.1:5173/api/proxy?path=auth/activation-status',{headers:{Authorization:`Bearer ${token}`}});
+if(!status.ok)throw new Error('Could not read activation status.');
+const data=await status.json();if(!data.configured)throw new Error('The running API did not load email configuration.');
+console.log(JSON.stringify({configured:data.configured,pending:data.pending,clientBuildContainsKey:false}));
