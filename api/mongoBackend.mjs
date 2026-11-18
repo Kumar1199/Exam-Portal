@@ -302,6 +302,16 @@ export async function handleExamApi(req, res, action) {
     const exam = invite.examId ? await db.collection('exams').findOne({ _id: idValue(invite.examId) }) : null;
     if (!student || !exam) return res.status(403).json({ success: false, message: 'The student or exam is no longer available.' });
     if (!studentMatchesExam(exam, student)) return res.status(403).json({ success: false, message: 'This exam is not scheduled for your college and branch.' });
+    const scheduledStart = exam.startTime || exam.start_time || exam.start || (exam.date && exam.time ? `${exam.date}T${exam.time}` : null);
+    const startAt = scheduledStart ? new Date(scheduledStart).getTime() : NaN;
+    const checkInOpensAt = startAt - (15 * 60 * 1000);
+    if (Number.isFinite(startAt) && Date.now() < checkInOpensAt) {
+      return res.status(403).json({
+        success: false,
+        message: 'Secure check-in opens 15 minutes before your scheduled exam time.',
+        checkInOpensAt: new Date(checkInOpensAt).toISOString()
+      });
+    }
     const session = { rollNo, examId: String(invite.examId || ''), pin, exp: Math.floor(Date.now() / 1000) + 4 * 60 * 60 };
     const token = sign({ ...session, exp: Math.floor(Date.now()/1000)+14400 });
     const normalize = value => value && ({ ...value, _id: undefined, id: String(value._id) });
