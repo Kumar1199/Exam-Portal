@@ -5,8 +5,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
 import { formatDate, getGradeColor } from '../../utils/helpers';
 import { useAuth } from '../../context/AuthContext';
-import { collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { collection, getDocs, query, where } from '../../services/mongoDb.js';
+import { db } from '../../services/mongoDb.js';
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (active && payload && payload.length) {
@@ -21,7 +21,7 @@ const CustomTooltip = ({ active, payload, label }) => {
 
 export default function ResultsPage() {
   const { user } = useAuth();
-  const rollNo = user?.email ? user.email.split('@')[0].toUpperCase() : '';
+  const rollNo = user?.rollNo || (user?.email ? user.email.split('@')[0].toUpperCase() : '');
   const [loading, setLoading] = useState(true);
   const [myResults, setMyResults] = useState([]);
 

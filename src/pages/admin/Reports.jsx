@@ -4,8 +4,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { TrendingUp, Users, Award, BookOpen, Download } from 'lucide-react';
 import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
 import { exportToCSV } from '../../utils/helpers';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { collection, getDocs } from '../../services/mongoDb.js';
+import { db } from '../../services/mongoDb.js';
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (active && payload?.length) {

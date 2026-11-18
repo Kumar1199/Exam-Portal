@@ -1,16 +1,3 @@
-import admin from 'firebase-admin';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const serviceAccount = require('./serviceAccountKey.json');
-admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-const db = admin.firestore();
-async function run() {
-  const snapshot = await db.collection('students').get();
-  console.log('Found ' + snapshot.size + ' students');
-  let hasGithub = 0;
-  snapshot.forEach(doc => {
-    if (doc.data().githubUsername) hasGithub++;
-  });
-  console.log('Students with githubUsername: ' + hasGithub);
-}
-run().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });
+import { MongoClient } from 'mongodb';
+if(!process.env.MONGODB_URI) throw new Error('Set MONGODB_URI.'); const client=new MongoClient(process.env.MONGODB_URI);
+try { await client.connect(); const students=await client.db(process.env.MONGODB_DB_NAME||'student360').collection('students').find({}, {projection:{githubUsername:1}}).toArray(); console.log(`Found ${students.length} students; ${students.filter(s=>s.githubUsername).length} have githubUsername.`); } finally { await client.close(); }

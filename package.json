@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "sync-github": "node scripts/syncGithubData.js"
+    "sync-github": "node scripts/syncGithubData.js",
+    "migrate:firebase": "node --env-file=.env.local scripts/migrateFirebaseToMongo.mjs",
+    "provision:student": "node --env-file=.env.local scripts/provisionStudent.mjs",
+    "verify:mongo": "node --env-file=.env.local scripts/verifyMongo.mjs",
+    "verify:activation": "node --env-file=.env.local scripts/verifyActivation.mjs"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.0.1",
@@ -28,10 +32,10 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
-    "firebase": "^12.13.0",
     "firebase-admin": "^13.9.0",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.14.0",
+    "mongodb": "^6.16.0",
     "react-hot-toast": "^2.6.0",
     "react-router-dom": "^7.15.0",
     "recharts": "^3.8.1",

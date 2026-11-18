@@ -5,8 +5,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import StatCard from '../../components/shared/StatCard';
 import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
 import { generateInitials, getAvatarColor } from '../../utils/helpers';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { collection, getDocs } from '../../services/mongoDb.js';
+import { db } from '../../services/mongoDb.js';
 
 const ChartTip = ({ active, payload, label }) =>
   active && payload?.length ? (

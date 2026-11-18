@@ -4,8 +4,8 @@ import { generateInitials, getAvatarColor } from '../../utils/helpers';
 import { GitBranch, TrendingUp, Star, Activity, RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from 'recharts';
 import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
-import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { collection, getDocs, doc, updateDoc } from '../../services/mongoDb.js';
+import { db } from '../../services/mongoDb.js';
 
 export default function AdminGitHub() {
   const [loading, setLoading] = useState(true);

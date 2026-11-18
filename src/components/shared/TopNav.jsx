@@ -4,8 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
 import { generateInitials, getAvatarColor, formatDate } from '../../utils/helpers';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { collection, getDocs } from '../../services/mongoDb.js';
+import { db } from '../../services/mongoDb.js';
 
 export default function TopNav({ title = 'Dashboard' }) {
   const { user } = useAuth();

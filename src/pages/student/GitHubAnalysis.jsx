@@ -5,8 +5,8 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis
 import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
 import { ErrorState } from '../../components/shared/ErrorState';
 import { useAuth } from '../../context/AuthContext';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { doc, getDoc } from '../../services/mongoDb.js';
+import { db } from '../../services/mongoDb.js';
 import { Link } from 'react-router-dom';
 
 const COLORS = ['#f97316', '#3b82f6', '#10b981', '#8b5cf6', '#f43f5e', '#f59e0b', '#06b6d4'];
@@ -36,7 +36,7 @@ const CustomBarTooltip = ({ active, payload }) => {
 
 export default function GitHubAnalysisPage() {
   const { user } = useAuth();
-  const rollNo = user?.email ? user.email.split('@')[0].toUpperCase() : '';
+  const rollNo = user?.rollNo || (user?.email ? user.email.split('@')[0].toUpperCase() : '');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);

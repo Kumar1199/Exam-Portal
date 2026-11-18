@@ -5,8 +5,8 @@ import { Plus, Edit2, Trash2, X, Save, AlertTriangle, Loader2 } from 'lucide-rea
 import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
 import { formatDate, getSeverityClass, getStatusClass } from '../../utils/helpers';
 import toast from 'react-hot-toast';
-import { collection, getDocs, doc, deleteDoc, updateDoc, setDoc } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { collection, getDocs, doc, deleteDoc, updateDoc, setDoc } from '../../services/mongoDb.js';
+import { db } from '../../services/mongoDb.js';
 
 const SEVERITIES = ['Low', 'Medium', 'High'];
 const PIE_COLORS = { Low: '#10b981', Medium: '#f59e0b', High: '#ef4444' };
@@ -20,6 +20,7 @@ export default function AdminViolations() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [evidenceIncident, setEvidenceIncident] = useState(null);
 
   useEffect(() => {
     const fetchViolations = async () => {
@@ -151,7 +152,7 @@ export default function AdminViolations() {
                     style={{ borderBottom: '1px solid #27272a' }}>
                     <td className="px-6 py-5 font-semibold text-white">{v.studentName}</td>
                     <td className="px-6 py-5 text-sm" style={{ color: '#a1a1aa' }}>{v.rollNumber}</td>
-                    <td className="px-6 py-5 text-sm" style={{ color: '#a1a1aa' }}>{v.type}</td>
+                    <td className="px-6 py-5 text-sm" style={{ color: '#a1a1aa' }}>{v.type}{v.evidence?.image && <button type="button" onClick={() => setEvidenceIncident(v)} className="mt-2 block text-sm text-orange-300 underline">View evidence</button>}</td>
                     <td className="px-6 py-5">
                       <span className={`text-sm px-3 py-1.5 rounded-full font-semibold ${getSeverityClass(v.severity)}`}>{v.severity}</span>
                     </td>
@@ -185,6 +186,19 @@ export default function AdminViolations() {
       <AnimatePresence>
         {modalOpen && <ViolationModal violation={editViolation} onClose={() => { setModalOpen(false); setEditViolation(null); }} onSave={handleSave} isSaving={isSaving} />}
       </AnimatePresence>
+      {evidenceIncident && createPortal(<div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 p-4" onClick={() => setEvidenceIncident(null)}>
+        <section role="dialog" aria-modal="true" aria-labelledby="evidence-title" className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl border border-zinc-700 bg-zinc-950 p-6" onClick={event=>event.stopPropagation()}>
+          <div className="flex items-center justify-between"><h2 id="evidence-title" className="text-xl font-semibold text-white">Incident evidence</h2><button type="button" aria-label="Close evidence" onClick={()=>setEvidenceIncident(null)} className="text-white"><X size={22}/></button></div>
+          <p className="my-3 text-sm text-zinc-300">{evidenceIncident.rollNumber} · {evidenceIncident.type} · {new Date(evidenceIncident.evidence.capturedAt).toLocaleString()}</p>
+          <div className="relative mx-auto" style={{maxWidth:evidenceIncident.evidence.width}}>
+            <img src={evidenceIncident.evidence.image} alt="Captured exam incident" className="block h-auto w-full rounded-lg"/>
+            <svg viewBox={`0 0 ${evidenceIncident.evidence.width} ${evidenceIncident.evidence.height}`} className="pointer-events-none absolute inset-0 h-full w-full" aria-label="Detected regions">
+              {(evidenceIncident.evidence.regions||[]).map((region,index)=><g key={index}><rect x={region.x*evidenceIncident.evidence.width} y={region.y*evidenceIncident.evidence.height} width={region.width*evidenceIncident.evidence.width} height={region.height*evidenceIncident.evidence.height} fill="none" stroke={region.type==='phone'?'#ffb020':'#22d3ee'} strokeWidth="3"/><text x={Math.max(2,region.x*evidenceIncident.evidence.width)} y={Math.max(18,region.y*evidenceIncident.evidence.height-4)} fill="white" stroke="black" strokeWidth="3" paintOrder="stroke" fontSize="17">{region.type==='phone'?`Phone ${Math.round((region.score||0)*100)}%`:'Face'}</text></g>)}
+            </svg>
+          </div>
+          <p className="mt-3 text-sm text-zinc-400">{evidenceIncident.description} These automated detections require human review.</p>
+        </section>
+      </div>,document.body)}
     </div>
   );
 }

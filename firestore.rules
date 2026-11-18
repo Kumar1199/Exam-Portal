@@ -23,7 +23,14 @@ service cloud.firestore {
     // Students collection
     match /students/{studentId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() || (isSignedIn() && request.auth.token.email.matches('(?i)^' + studentId + '@.*'));
+      allow create, update: if isAdmin() || (isSignedIn() && request.auth.token.email.matches('(?i)^' + studentId + '@.*'));
+      allow delete: if isAdmin();
+    }
+
+    // College and branch catalog managed by administrators
+    match /colleges/{collegeId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
     }
 
     // Exams collection

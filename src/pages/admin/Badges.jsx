@@ -4,8 +4,8 @@ import { generateInitials, getAvatarColor } from '../../utils/helpers';
 import { Trophy, Star, Plus, Loader2, Search, X } from 'lucide-react';
 import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
 import toast from 'react-hot-toast';
-import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { collection, getDocs, doc, setDoc, deleteDoc } from '../../services/mongoDb.js';
+import { db } from '../../services/mongoDb.js';
 
 const BADGES = [
   { id: 'b1', name: 'Algorithm Pro', icon: '🧠', color: '#f59e0b' },

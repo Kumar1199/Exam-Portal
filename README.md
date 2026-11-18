@@ -10,10 +10,10 @@
 
 STUDENT 360 is a modern, premium web application designed to monitor and analyze student performance, behavior, and extracurricular activities (like GitHub contributions) at an institutional level. Built with React and Vite, the platform features a sleek, futuristic dark-and-orange UI with fluid animations and rich data visualization.
 
-[![Watch the demo](https://img.shields.io/badge/▶_WATCH_THE_DEMO-F97316?style=for-the-badge)](Documentation%20%26%20Demo/Video%20Demo/captioned%20%26%20voiceover%20video%20demo..mp4)
+[![Watch the demo](https://img.shields.io/badge/Ã¢â€“Â¶_WATCH_THE_DEMO-F97316?style=for-the-badge)](Documentation%20%26%20Demo/Video%20Demo/captioned%20%26%20voiceover%20video%20demo..mp4)
 [![Exam client](https://img.shields.io/badge/DESKTOP_EXAM_CLIENT-282C34?style=for-the-badge&logo=electron&logoColor=9FEAF9)](https://github.com/lokeshkodamanchili/STUDENT-360-ELECTRON-APP)
 
-[Features](#features) · [Tech Stack](#tech-stack) · [Getting Started](#getting-started) · [Firebase](#firebase-setup) · [Demo Video](#demo-video)
+[Features](#features) Ã‚Â· [Tech Stack](#tech-stack) Ã‚Â· [Getting Started](#getting-started) Ã‚Â· [Firebase](#firebase-setup) Ã‚Â· [Demo Video](#demo-video)
 
 </div>
 
@@ -21,9 +21,9 @@ STUDENT 360 is a modern, premium web application designed to monitor and analyze
 
 <a id="features"></a>
 
-## 🚀 Features
+## Ã°Å¸Å¡â‚¬ Features
 
-### 🎓 Student Portal
+### Ã°Å¸Å½â€œ Student Portal
 
 | Feature | Description |
 | :--- | :--- |
@@ -32,7 +32,7 @@ STUDENT 360 is a modern, premium web application designed to monitor and analyze
 | **Academic Records** | Detailed tracking of test scores, historical results, and GPA. |
 | **Behavior & Gamification** | Monitor rule violations and earn achievement badges for academic and extracurricular excellence. |
 
-### 🛡️ Admin Portal
+### Ã°Å¸â€ºÂ¡Ã¯Â¸Â Admin Portal
 
 | Feature | Description |
 | :--- | :--- |
@@ -46,7 +46,7 @@ STUDENT 360 is a modern, premium web application designed to monitor and analyze
 
 <a id="tech-stack"></a>
 
-## 💻 Tech Stack
+## Ã°Å¸â€™Â» Tech Stack
 
 - **Frontend Framework:** React, Vite
 - **Styling:** Tailwind CSS v4, Custom CSS Variables
@@ -59,7 +59,7 @@ STUDENT 360 is a modern, premium web application designed to monitor and analyze
 
 <a id="getting-started"></a>
 
-## 🛠️ Getting Started
+## Ã°Å¸â€ºÂ Ã¯Â¸Â Getting Started
 
 ### Prerequisites
 
@@ -87,18 +87,18 @@ STUDENT 360 is a modern, premium web application designed to monitor and analyze
    cp .env.example .env.local
    ```
 
-4. Add your Firebase credentials to `.env.local`:
+4. Configure MongoDB and authentication secrets in `.env.local` (server-side only; do not use a `VITE_` prefix):
    ```env
-   VITE_FIREBASE_API_KEY=your_api_key
-   VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-   VITE_FIREBASE_PROJECT_ID=your_project_id
-   VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-   VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-   VITE_FIREBASE_APP_ID=your_app_id
-   VITE_FIREBASE_MEASUREMENT_ID=your_measurement_id
-   VITE_POWER_AUTOMATE_URL=https://prod-xx.centralindia.logic.azure.com/...
-   VITE_GITHUB_TOKEN=ghp_your_token (optional)
+   MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>/<database>
+   MONGODB_DB_NAME=student360
+   JWT_SECRET=<long-random-secret>
+   ADMIN_BOOTSTRAP_TOKEN=<one-time-random-token>
    ```
+   Add the same values to the Vercel project environment before deployment.
+
+### Import existing Firebase documents
+
+The old Firebase documents can be copied with `npm run migrate:firebase` after placing the Firebase Admin service account at `scripts/serviceAccountKey.json`. The script upserts documents by their Firebase document IDs into MongoDB. Firebase Authentication passwords cannot be exported; users need MongoDB credentials provisioned separately.
 
 5. Start the development server:
    ```bash
@@ -109,7 +109,7 @@ STUDENT 360 is a modern, premium web application designed to monitor and analyze
 
 ---
 
-## 🎨 UI/UX Philosophy
+## Ã°Å¸Å½Â¨ UI/UX Philosophy
 
 The UI was explicitly designed to break away from traditional, sterile educational software. It utilizes a **Premium Dark/Orange Theme** featuring:
 - Glassmorphism effects and ambient glowing backgrounds.
@@ -120,7 +120,7 @@ The UI was explicitly designed to break away from traditional, sterile education
 
 <a id="firebase-setup"></a>
 
-## 🔥 Firebase Setup
+## Ã°Å¸â€Â¥ Firebase Setup
 
 ### Creating a Firestore Database
 
@@ -131,7 +131,7 @@ The UI was explicitly designed to break away from traditional, sterile education
    - Click "Create Database"
    - Choose "Start in production mode"
 4. Get your credentials:
-   - Go to Project Settings (⚙️ icon)
+   - Go to Project Settings (Ã¢Å¡â„¢Ã¯Â¸Â icon)
    - Click "Service Accounts"
    - Download JSON key for backend operations
    - Go to "General" tab and find your web app config
@@ -149,7 +149,7 @@ The app expects the following collections:
 
 ---
 
-## 🔗 Result Submission API (Electron App Integration)
+## Ã°Å¸â€â€” Result Submission API (Electron App Integration)
 
 The platform supports result submission from Electron-based exam applications. Results are automatically stored in Firestore and made available in the admin and student portals.
 
@@ -215,19 +215,12 @@ const submitResult = async (resultData) => {
 
 ---
 
-## 🚀 Deployment
+## Ã°Å¸Å¡â‚¬ Deployment
 
 ### Deploy to Vercel
 
 1. Connect your GitHub repository to Vercel
 2. In Vercel project settings, add environment variables:
-   - `VITE_FIREBASE_API_KEY`
-   - `VITE_FIREBASE_AUTH_DOMAIN`
-   - `VITE_FIREBASE_PROJECT_ID`
-   - `VITE_FIREBASE_STORAGE_BUCKET`
-   - `VITE_FIREBASE_MESSAGING_SENDER_ID`
-   - `VITE_FIREBASE_APP_ID`
-   - `VITE_FIREBASE_MEASUREMENT_ID`
    - `VITE_POWER_AUTOMATE_URL` (optional)
    - `VITE_GITHUB_TOKEN` (optional)
 
@@ -236,17 +229,17 @@ const submitResult = async (resultData) => {
 
 ---
 
-## 🔐 Security Features
+## Ã°Å¸â€Â Security Features
 
 - **Environment Variables:** Sensitive credentials stored in environment variables, not hardcoded
-- **Firebase Security Rules:** Production database requires proper authentication
+- **MongoDB API:** Database credentials stay on the server and protected routes require a signed session token
 - **API Security:** Removed insecure SSL bypass, uses standard HTTPS
 - **GitHub Token:** Optional token support for higher GitHub API rate limits
 - **Power Automate Integration:** Secure webhook-based email notifications
 
 ---
 
-## 📦 Available Scripts
+## Ã°Å¸â€œÂ¦ Available Scripts
 
 - `npm run dev` - Start development server
 - `npm run build` - Build for production
@@ -255,26 +248,26 @@ const submitResult = async (resultData) => {
 
 ---
 
-## 📂 Project Structure
+## Ã°Å¸â€œâ€š Project Structure
 
 ```
 src/
-├── components/
-│   ├── shared/          # Reusable components
-│   └── ...
-├── pages/
-│   ├── admin/           # Admin-only pages
-│   ├── student/         # Student-only pages
-│   └── auth/            # Authentication pages
-├── firebase/            # Firebase configuration
-├── context/             # React Context (Auth, App state)
-├── routes/              # Protected routes
-└── utils/               # Helper functions
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ components/
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ shared/          # Reusable components
+Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ ...
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ pages/
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ admin/           # Admin-only pages
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ student/         # Student-only pages
+Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ auth/            # Authentication pages
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ firebase/            # Firebase configuration
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ context/             # React Context (Auth, App state)
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ routes/              # Protected routes
+Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ utils/               # Helper functions
 ```
 
 ---
 
-## 🤝 Contributing
+## Ã°Å¸Â¤Â Contributing
 
 Contributions are welcome! Please follow these steps:
 
@@ -285,13 +278,13 @@ Contributions are welcome! Please follow these steps:
 
 ---
 
-## 📝 License
+## Ã°Å¸â€œÂ License
 
 This project is licensed under the MIT License.
 
 ---
 
-## 🎯 Future Enhancements
+## Ã°Å¸Å½Â¯ Future Enhancements
 
 - [ ] Advanced analytics dashboard
 - [ ] Machine learning-based student performance predictions
@@ -304,7 +297,7 @@ This project is licensed under the MIT License.
 
 <a id="demo-video"></a>
 
-## 🎬 Demo Video
+## Ã°Å¸Å½Â¬ Demo Video
 
 [![Watch the demo](https://img.shields.io/badge/WATCH_THE_VIDEO_DEMO-F97316?style=for-the-badge&logo=youtube&logoColor=white)](Documentation%20%26%20Demo/Video%20Demo/captioned%20%26%20voiceover%20video%20demo..mp4)
 
@@ -314,11 +307,11 @@ This project is licensed under the MIT License.
 
 ---
 
-## 💻 Integrated Exam Client (Electron App)
+## Ã°Å¸â€™Â» Integrated Exam Client (Electron App)
 
 The Student 360 platform integrates seamlessly with a desktop-based exam application. This client application is used by students to securely take exams, while automatically logging violations and submitting grades directly to the database.
 
-* **🎮 Desktop Exam Client Repository:** [STUDENT-360-ELECTRON-APP](https://github.com/lokeshkodamanchili/STUDENT-360-ELECTRON-APP)
+* **Ã°Å¸Å½Â® Desktop Exam Client Repository:** [STUDENT-360-ELECTRON-APP](https://github.com/lokeshkodamanchili/STUDENT-360-ELECTRON-APP)
   *Features include a distraction-free exam window, voice and camera checks, tab-switch proctor alerts, and automatic result submission via HTTP POST endpoints.*
 
 ---

@@ -20,6 +20,7 @@ import AchievementsPage from './pages/student/Achievements';
 // Admin pages
 import AdminDashboard from './pages/admin/Dashboard';
 import AdminStudents from './pages/admin/Students';
+import AdminColleges from './pages/admin/Colleges';
 import AdminExams from './pages/admin/Exams';
 import AdminResults from './pages/admin/Results';
 import AdminReports from './pages/admin/Reports';
@@ -27,6 +28,7 @@ import AdminViolations from './pages/admin/Violations';
 import AdminGitHub from './pages/admin/GitHubAnalysis';
 import AdminBadges from './pages/admin/Badges';
 import AdminNotifications from './pages/admin/Notifications';
+import ActivateAccount from './pages/auth/ActivateAccount';
 
 function AppContent() {
   const { loading } = useAuth();
@@ -39,6 +41,7 @@ function AppContent() {
     <Routes>
       {/* Public */}
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/activate" element={<ActivateAccount />} />
       <Route path="/" element={<Navigate to="/login" replace />} />
 
       {/* Student routes */}
@@ -72,6 +75,7 @@ function AppContent() {
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<AdminDashboard />} />
         <Route path="students" element={<AdminStudents />} />
+        <Route path="colleges" element={<AdminColleges />} />
         <Route path="exams" element={<AdminExams />} />
         <Route path="results" element={<AdminResults />} />
         <Route path="reports" element={<AdminReports />} />

@@ -1,28 +1,35 @@
+import QuestionBankModal from '../../components/admin/QuestionBankModal';
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { Search, Plus, Calendar, Clock, BookOpen, ChevronRight, Edit2, Trash2, ShieldAlert, Monitor, UserCheck, Code, Save, X, Loader2 } from 'lucide-react';
 import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
 import { formatDate, getDifficultyColor, getExamStatusColor } from '../../utils/helpers';
-import { generateExamCode } from '../../utils/generateExamCode';
+
 import toast from 'react-hot-toast';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where } from '../../services/mongoDb.js';
+import { db } from '../../services/mongoDb.js';
+import { studentMatchesExam, validateExamAudience } from '../../utils/examAudience';
 
 export default function AdminExams() {
   const [loading, setLoading] = useState(true);
   const [exams, setExams] = useState([]);
+  const [colleges, setColleges] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editExam, setEditExam] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [questionExam, setQuestionExam] = useState(null);
   const [filter, setFilter] = useState('all');
 
   const fetchExams = async () => {
     setLoading(true);
     try {
-      const querySnapshot = await getDocs(collection(db, 'exams'));
+      const [querySnapshot, collegeSnapshot] = await Promise.all([
+        getDocs(collection(db, 'exams')), getDocs(collection(db, 'colleges')),
+      ]);
+      setColleges(collegeSnapshot.docs.map(item => ({ ...item.data(), id: item.id })));
       const examsData = [];
       querySnapshot.forEach((doc) => {
         examsData.push({ id: doc.id, ...doc.data() });
@@ -80,22 +87,6 @@ export default function AdminExams() {
    * Create exam invites for all students
    * Generates a unique 6-digit code for each student and stores in examInvites collection
    */
-  const getUniqueExamCode = async () => {
-    const maxAttempts = 12;
-    let attempts = 0;
-
-    while (attempts < maxAttempts) {
-      const code = generateExamCode();
-      const existing = await getDocs(query(collection(db, 'examInvites'), where('examCode', '==', code)));
-      if (existing.empty) {
-        return code;
-      }
-      attempts += 1;
-    }
-
-    throw new Error('Unable to generate a unique exam code after several attempts. Please retry.');
-  };
-
   const createExamInvites = async (students, examId, examTitle) => {
     try {
       const powerAutomateUrl = import.meta.env.VITE_POWER_AUTOMATE_URL;
@@ -105,17 +96,16 @@ export default function AdminExams() {
       }
 
       for (const student of students) {
-        const code = await getUniqueExamCode();
 
         // Create invite record in Firestore
-        await addDoc(collection(db, 'examInvites'), {
+        const invitation = await addDoc(collection(db, 'examInvites'), {
           rollNo: student.rollNo || '',
           email: student.email || '',
           examId,
-          examCode: code,
           status: 'Pending',
           createdAt: new Date(),
         });
+        const code = invitation.examCode;
 
         // Send to Power Automate if URL is configured
         if (powerAutomateUrl) {
@@ -149,32 +139,41 @@ export default function AdminExams() {
   };
 
   const handleSave = async (data) => {
+    const audienceError = validateExamAudience(data, colleges);
+    if (audienceError) { toast.error(audienceError); return; }
     setIsSaving(true);
     try {
+      const students = (await fetchStudents()).filter(student => studentMatchesExam(data, student));
+      let savedId;
       if (editExam?.id) {
         // Updating existing exam
         const examRef = doc(db, 'exams', editExam.id);
         await updateDoc(examRef, data);
         setExams(p => p.map(e => e.id === editExam.id ? { ...e, ...data } : e));
         toast.success('Exam updated');
+        savedId = editExam.id;
       } else {
         // Creating new exam - generate invites for all students
         const docRef = await addDoc(collection(db, 'exams'), { ...data, examLink: '#' });
         setExams(p => [{ ...data, id: docRef.id, examLink: '#' }, ...p]);
         toast.success('Exam scheduled');
-
-        // Fetch students and create exam invites
+        savedId = docRef.id;
+      }
+      if (data.status !== 'completed') {
         try {
-          const students = await fetchStudents();
-          if (students.length > 0) {
-            await createExamInvites(students, docRef.id, data.title);
-          } else {
-            console.warn('No students found to create invites for');
-            toast.info('No students available for exam invites');
+          const existing = await getDocs(query(collection(db, 'examInvites'), where('examId', '==', savedId)));
+          const eligibleRolls = new Set(students.map(student => student.rollNo));
+          const retainedRolls = new Set();
+          for (const invite of existing.docs) {
+            if (!eligibleRolls.has(invite.data().rollNo)) await deleteDoc(doc(db, 'examInvites', invite.id));
+            else retainedRolls.add(invite.data().rollNo);
           }
+          const missing = students.filter(student => !retainedRolls.has(student.rollNo));
+          if (missing.length) await createExamInvites(missing, savedId, data.title);
+          if (!students.length) toast('No students currently match the selected colleges and branches.');
         } catch (error) {
-          console.error('Error creating exam invites:', error);
-          toast.error('Exam created but invite generation failed');
+          console.error('Failed to synchronize invitations:', error);
+          toast.error('Exam saved, but invitations could not be fully updated. Edit and save again to retry.');
         }
       }
       setModalOpen(false);
@@ -256,7 +255,7 @@ export default function AdminExams() {
                         style={{ background: `${diffColor}20`, color: diffColor }}>
                         {exam.difficulty}
                       </span>
-                      <button onClick={() => { setEditExam(exam); setModalOpen(true); }}
+                      <button title="Edit exam" onClick={() => { setEditExam(exam); setModalOpen(true); }}
                         className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-blue-500/20 transition-all"
                         style={{ color: '#f97316' }}><Edit2 size={15} /></button>
                       <button onClick={() => handleDelete(exam.id)} disabled={isDeleting && deletingId === exam.id} className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-red-500/20 transition-all"
@@ -277,9 +276,13 @@ export default function AdminExams() {
                     </div>
                     <span className="text-sm" style={{ color: '#ffffff' }}>Total: {exam.totalMarks} marks</span>
                   </div>
+                  <button onClick={() => setQuestionExam(exam)} className="mt-4 px-4 py-2 rounded-lg bg-orange-600/20 text-orange-300 border border-orange-600/40">{exam.questionSource === 'csv' ? `Manage questions (${exam.questionCount || 0})` : 'Upload questions CSV'}</button>
                   <p className="text-sm mt-3 leading-relaxed" style={{ color: '#475569' }}>
                     <span style={{ color: '#ffffff' }}>Syllabus: </span>{exam.syllabus}
                   </p>
+                  <p className="mt-3 text-sm text-zinc-400">Students: {exam.audienceMode === 'selected'
+                    ? exam.audience?.map(target => `${target.collegeName}: ${target.branches.join(', ')}`).join(' · ')
+                    : 'All colleges and branches'}</p>
                 </motion.div>
               );
             })
@@ -287,14 +290,15 @@ export default function AdminExams() {
         </AnimatePresence>
       </div>
 
+      {questionExam && <QuestionBankModal exam={questionExam} onClose={() => setQuestionExam(null)} onSaved={bank => setExams(current => current.map(e => e.id === questionExam.id ? {...e, questionSource:'csv', totalMarks:bank.totalMarks,questionCount:(bank.questions||bank.problems).length} : e))} />}
       <AnimatePresence>
-        {modalOpen && <ExamModal exam={editExam} onClose={() => { setModalOpen(false); setEditExam(null); }} onSave={handleSave} isSaving={isSaving} />}
+        {modalOpen && <ExamModal exam={editExam} colleges={colleges} onClose={() => { setModalOpen(false); setEditExam(null); }} onSave={handleSave} isSaving={isSaving} />}
       </AnimatePresence>
     </div>
   );
 }
 
-function ExamModal({ exam, onClose, onSave, isSaving }) {
+function ExamModal({ exam, colleges, onClose, onSave, isSaving }) {
   const [form, setForm] = useState({
     title: exam?.title || '', 
     subject: exam?.subject || '', 
@@ -307,6 +311,8 @@ function ExamModal({ exam, onClose, onSave, isSaving }) {
     difficulty: exam?.difficulty || 'Medium',
     status: exam?.status || 'upcoming', 
     syllabus: exam?.syllabus || '',
+    audienceMode: exam ? (exam.audienceMode || 'all') : 'selected',
+    audience: exam?.audience || [],
   });
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -320,6 +326,8 @@ function ExamModal({ exam, onClose, onSave, isSaving }) {
       toast.error('Please fill in all required fields.');
       return;
     }
+    const audienceError = validateExamAudience(form, colleges);
+    if (audienceError) { toast.error(audienceError); return; }
     onSave(form);
   };
 
@@ -382,6 +390,14 @@ function ExamModal({ exam, onClose, onSave, isSaving }) {
               style={{ background: '#000000', border: '1px solid #27272a', color: '#fafafa' }} />
           </div>
 
+          <div className="md:col-span-2 rounded-xl border border-orange-500/30 bg-orange-500/5 p-4 text-sm text-zinc-300">
+            <p className="font-semibold text-orange-200">Question upload format</p>
+            {form.examType === 'MCQ' && <p className="mt-1">MCQ CSV: question_id, question, option_a, option_b, option_c, option_d, correct_option, marks. <a className="text-orange-300 underline" href="/templates/mcq-questions-sample.csv" download>Download MCQ sample</a></p>}
+            {form.examType === 'Coding' && <p className="mt-1">Coding CSV: problem_id, title, description, input/output format, marks, test input, expected output and visibility. <a className="text-orange-300 underline" href="/templates/coding-questions-sample.csv" download>Download Coding sample</a></p>}
+            {form.examType === 'AI Interview' && <p className="mt-1">Interview CSV: question_id, question, expected_key_points, follow_up, marks. <a className="text-orange-300 underline" href="/templates/interview-questions-sample.csv" download>Download Interview sample</a></p>}
+            <p className="mt-2 text-xs text-zinc-400">Save the exam, then use Upload questions CSV on its exam card.</p>
+          </div>
+
           <div>
             <label className="block text-sm font-semibold mb-2 text-zinc-300">Date <span className="text-red-500">*</span></label>
             <input type="date" min={today} value={form.date} onChange={set('date')}
@@ -431,6 +447,34 @@ function ExamModal({ exam, onClose, onSave, isSaving }) {
               {['upcoming', 'scheduled', 'completed'].map(d => <option key={d} value={d} className="capitalize">{d}</option>)}
             </select>
           </div>
+
+          <fieldset className="md:col-span-2 space-y-4 rounded-xl border border-zinc-800 p-4" disabled={isSaving}>
+            <legend className="px-2 text-sm font-semibold text-zinc-300">Colleges and branches *</legend>
+            <div className="flex flex-wrap gap-5 text-sm text-zinc-200">
+              <label className="flex items-center gap-2"><input type="radio" name="audienceMode" value="selected" checked={form.audienceMode === 'selected'} onChange={() => setForm(previous => ({ ...previous, audienceMode: 'selected' }))} />Specific colleges and branches</label>
+              <label className="flex items-center gap-2"><input type="radio" name="audienceMode" value="all" checked={form.audienceMode === 'all'} onChange={() => setForm(previous => ({ ...previous, audienceMode: 'all', audience: [] }))} />All students</label>
+            </div>
+            {form.audienceMode === 'selected' && <div className="space-y-3">
+              <p className="text-xs text-zinc-400">Select colleges, then select one or more branches in each. Only matching students receive invitations.</p>
+              {!colleges.length && <p className="text-sm text-amber-400">Add colleges and branches in Colleges before scheduling a targeted exam.</p>}
+              {colleges.map(college => {
+                const selected = form.audience.find(target => target.collegeId === college.id);
+                const toggleCollege = checked => setForm(previous => ({ ...previous, audience: checked
+                  ? [...previous.audience, { collegeId: college.id, collegeName: college.name, branches: [] }]
+                  : previous.audience.filter(target => target.collegeId !== college.id) }));
+                const setBranches = branches => setForm(previous => ({ ...previous, audience: previous.audience.map(target => target.collegeId === college.id ? { ...target, collegeName: college.name, branches } : target) }));
+                return <div key={college.id} className="rounded-lg border border-zinc-800 p-3">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-white"><input type="checkbox" checked={!!selected} onChange={event => toggleCollege(event.target.checked)} />{college.name}</label>
+                  {selected && <div className="mt-3 space-y-2 pl-5">
+                    <label className="flex items-center gap-2 text-xs text-orange-300"><input type="checkbox" checked={!!college.branches?.length && college.branches.every(branch => selected.branches.includes(branch))} onChange={event => setBranches(event.target.checked ? [...college.branches] : [])} />All branches in {college.name}</label>
+                    <div className="flex flex-wrap gap-x-5 gap-y-2">{college.branches?.map(branch => <label key={branch} className="flex items-center gap-2 text-sm text-zinc-300"><input type="checkbox" aria-label={`${college.name} — ${branch}`} checked={selected.branches.includes(branch)} onChange={event => setBranches(event.target.checked ? [...selected.branches, branch] : selected.branches.filter(value => value !== branch))} />{branch}</label>)}</div>
+                    {!selected.branches.length && <p className="text-xs text-amber-400">Select at least one branch for this college.</p>}
+                  </div>}
+                </div>;
+              })}
+              {form.audience.filter(target => !colleges.some(college => college.id === target.collegeId)).map(target => <div key={target.collegeId} className="text-sm text-amber-400">{target.collegeName} is no longer available. <button type="button" onClick={() => setForm(previous => ({ ...previous, audience: previous.audience.filter(item => item.collegeId !== target.collegeId) }))}>Remove selection</button></div>)}
+            </div>}
+          </fieldset>
 
           <div className="md:col-span-2">
             <label className="block text-sm font-semibold mb-2 text-zinc-300">Syllabus Topics</label>

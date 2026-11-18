@@ -171,6 +171,7 @@ export default function LoginPage() {
             ))}
           </motion.div>
 
+          <p className="mb-5 text-center text-sm text-zinc-400">New student? Open the activation link sent to your email to set your password. Ask your administrator to resend it if needed.</p>
           {/* Form Content */}
           <motion.div variants={itemVariants} className="space-y-5">
             <AnimatePresence mode="wait">

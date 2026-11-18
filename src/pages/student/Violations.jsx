@@ -4,12 +4,12 @@ import { AlertTriangle, Shield, CheckCircle, Clock } from 'lucide-react';
 import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
 import { ErrorState } from '../../components/shared/ErrorState';
 import { useAuth } from '../../context/AuthContext';
-import { collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { collection, getDocs, query, where } from '../../services/mongoDb.js';
+import { db } from '../../services/mongoDb.js';
 import { getSeverityClass, getStatusClass, formatDate } from '../../utils/helpers';
 export default function ViolationsPage() {
   const { user } = useAuth();
-  const rollNo = user?.email ? user.email.split('@')[0].toUpperCase() : '';
+  const rollNo = user?.rollNo || (user?.email ? user.email.split('@')[0].toUpperCase() : '');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);

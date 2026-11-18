@@ -7,8 +7,8 @@ import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
 import { ErrorState } from '../../components/shared/ErrorState';
 import { formatDate, getDaysUntil, getGradeColor, calculatePlacementIndex } from '../../utils/helpers';
 import { useAuth } from '../../context/AuthContext';
-import { collection, getDocs, doc, getDoc, query, where } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { collection, getDocs, doc, getDoc, query, where } from '../../services/mongoDb.js';
+import { db } from '../../services/mongoDb.js';
 
 const ChartTip = ({ active, payload, label }) =>
   active && payload?.length ? (
@@ -28,7 +28,7 @@ const radarData = [
 
 export default function StudentDashboard() {
   const { user } = useAuth();
-  const rollNo = user?.email ? user.email.split('@')[0].toUpperCase() : '';
+  const rollNo = user?.rollNo || (user?.email ? user.email.split('@')[0].toUpperCase() : '');
   const [loading, setLoading] = useState(true);
   const [studentData, setStudentData] = useState(null);
   const [dashboardStats, setDashboardStats] = useState(null);

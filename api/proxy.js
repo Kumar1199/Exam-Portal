@@ -1,17 +1,20 @@
+import { handleAuth, handleMongo, handleExamApi } from './mongoBackend.mjs';
 import https from 'https';
 
 export default async function handler(req, res) {
   // Allow cross-origin requests
-  res.setHeader('Access-Control-Allow-Credentials', true);
-  res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, X-Bootstrap-Token');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
   const targetPath = req.query.path;
+  if (targetPath?.startsWith('auth/')) return handleAuth(req, res, targetPath.slice(5));
+  if (targetPath === 'mongo') return handleMongo(req, res);
+  if (targetPath?.startsWith('exam/')) return handleExamApi(req, res, targetPath.slice(5));
   if (!targetPath) {
     return res.status(400).json({ error: 'Missing path parameter' });
   }
@@ -78,11 +81,19 @@ export default async function handler(req, res) {
  */
 async function handleResultSubmission(req, res, targetPath) {
   try {
+    const { authUser } = await import('./mongoBackend.mjs');
+    const user = authUser(req);
+    const requestedRoll = targetPath.startsWith('results/student/') ? targetPath.split('/')[2]?.toUpperCase() : null;
+    const allowed = user?.role === 'admin' || (targetPath === 'submit-result' && !!user?.examId) || (requestedRoll && String(user?.rollNo || '').toUpperCase() === requestedRoll);
+    if (!allowed) return res.status(401).json({ error: 'Authentication required.' });
     if (req.method === 'POST' && targetPath === 'submit-result') {
       // Import the result submission function dynamically
       const { submitExamResult } = await import('../scripts/importResults.js');
 
       const resultData = req.body;
+      if (user.role !== 'admin' && (String(resultData?.rollNo || '').toUpperCase() !== String(user.rollNo || '').toUpperCase() || String(resultData?.examId || '') !== String(user.examId || ''))) {
+        return res.status(403).json({ error: 'Result does not belong to this exam session.' });
+      }
       if (!resultData) {
         return res.status(400).json({ error: 'Missing result data' });
       }

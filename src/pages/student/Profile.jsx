@@ -6,12 +6,12 @@ import { ErrorState } from '../../components/shared/ErrorState';
 import { generateInitials, getAvatarColor, calculatePlacementIndex } from '../../utils/helpers';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
-import { doc, getDoc, setDoc, collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { doc, getDoc, setDoc, collection, getDocs, query, where } from '../../services/mongoDb.js';
+import { db } from '../../services/mongoDb.js';
 
 export default function ProfilePage() {
   const { user } = useAuth();
-  const rollNo = user?.email ? user.email.split('@')[0].toUpperCase() : '';
+  const rollNo = user?.rollNo || (user?.email ? user.email.split('@')[0].toUpperCase() : '');
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [studentData, setStudentData] = useState(null);

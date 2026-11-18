@@ -10,8 +10,8 @@ import {
   deleteDoc,
   orderBy,
   limit 
-} from 'firebase/firestore';
-import { db } from '../firebase/config';
+} from './mongoDb.js';
+import { db } from './mongoDb.js';
 
 export const firebaseService = {
   // Generic Fetch All

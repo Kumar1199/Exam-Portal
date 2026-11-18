@@ -1,0 +1,3 @@
+question_id,question,expected_key_points,follow_up,marks
+I1,Explain the difference between a process and a thread.,separate memory;shared memory;context switching,When would you choose a process?,10
+I2,How would you debug a slow API?,measure latency;inspect logs;profile database,Which metric would you inspect first?,10

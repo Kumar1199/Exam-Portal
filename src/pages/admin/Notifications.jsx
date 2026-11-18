@@ -5,8 +5,8 @@ import { Bell, Plus, Send, X, Save, Loader2 } from 'lucide-react';
 import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
 import { formatDate } from '../../utils/helpers';
 import toast from 'react-hot-toast';
-import { collection, getDocs, doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { collection, getDocs, doc, setDoc, serverTimestamp } from '../../services/mongoDb.js';
+import { db } from '../../services/mongoDb.js';
 
 const TYPE_COLORS = { info: '#f97316', success: '#10b981', achievement: '#f59e0b', warning: '#f97316', reminder: '#06b6d4' };
 

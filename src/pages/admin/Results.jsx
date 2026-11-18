@@ -4,8 +4,8 @@ import { formatDate, getGradeColor, generateInitials, getAvatarColor, exportToCS
 import { Download, CheckCircle } from 'lucide-react';
 import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
 import toast from 'react-hot-toast';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { collection, getDocs } from '../../services/mongoDb.js';
+import { db } from '../../services/mongoDb.js';
 
 export default function AdminResults() {
   const [loading, setLoading] = useState(true);
@@ -102,14 +102,14 @@ export default function AdminResults() {
                       </div>
                     </td>
                     <td className="px-6 py-5 text-sm" style={{ color: '#a1a1aa' }}>{r.subject}</td>
-                    <td className="px-6 py-5 text-sm font-bold text-white">{r.marks}</td>
+                    <td className="px-6 py-5 text-sm font-bold text-white">{r.evaluationPending ? 'Pending' : r.marks}</td>
                     <td className="px-6 py-5 text-sm" style={{ color: '#71717a' }}>{r.totalMarks}</td>
-                    <td className="px-6 py-5 text-sm font-bold" style={{ color }}>{r.percentage}%</td>
+                    <td className="px-6 py-5 text-sm font-bold" style={{ color }}>{r.evaluationPending ? 'Pending' : `${r.percentage}%`}</td>
                     <td className="px-6 py-5">
                       <span className="text-sm px-3 py-1.5 rounded-full font-bold" style={{ background: `${color}20`, color }}>{r.grade}</span>
                     </td>
                     <td className="px-6 py-5">
-                      <span className="text-sm px-3 py-1.5 rounded-full font-semibold status-active">{r.status === 'passed' ? 'Passed' : 'Failed'}</span>
+                      <span className="text-sm px-3 py-1.5 rounded-full font-semibold status-active">{r.evaluationPending ? 'Pending evaluation' : r.status === 'passed' ? 'Passed' : 'Failed'}</span>
                     </td>
                     <td className="px-6 py-5">
                       <span className={`text-sm px-3 py-1.5 rounded-full font-medium ${

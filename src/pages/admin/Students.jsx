@@ -1,333 +1,367 @@
-import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Plus, Edit2, Trash2, Download, X, Save, Loader2 } from 'lucide-react';
-import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
-import { generateInitials, getAvatarColor, exportToCSV, calculatePlacementIndex } from '../../utils/helpers';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Download, Edit2, FileUp, Loader2, Plus, Search, Save, Trash2, X, Mail } from 'lucide-react';
+import { collection, deleteDoc, doc, getDocs, updateDoc, writeBatch, setDoc } from '../../services/mongoDb.js';
 import toast from 'react-hot-toast';
-import { collection, getDocs, doc, deleteDoc, updateDoc, setDoc } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { db } from '../../services/mongoDb.js';
+import { calculatePlacementIndex, exportToCSV, generateInitials, getAvatarColor } from '../../utils/helpers';
+import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
 
-const DEPTS = ['All', 'Computer Science', 'Information Tech', 'Electronics', 'Mechanical', 'Civil'];
+const CSV_TEMPLATE = 'rollNo,name,email,phone,college,branch,department,year,cgpa,btech,backlogs,passoutYear,githubUsername\n21P31A0501,Jane Doe,jane@university.edu,+919876543210,Example College,CSE,Computer Science,3,8.5,85,0,2027,janedoe\n';
+
+function branchesAsText(value) {
+  return Array.isArray(value) ? value.join(', ') : (value || '').toString();
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [], cell = '', quoted = false;
+  const input = text.replace(/^\uFEFF/, '');
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input[i];
+    if (char === '"') {
+      if (quoted && input[i + 1] === '"') { cell += '"'; i += 1; }
+      else quoted = !quoted;
+    } else if (char === ',' && !quoted) {
+      row.push(cell.trim()); cell = '';
+    } else if ((char === '\n' || char === '\r') && !quoted) {
+      if (char === '\r' && input[i + 1] === '\n') i += 1;
+      row.push(cell.trim());
+      if (row.some(value => value !== '')) rows.push(row);
+      row = []; cell = '';
+    } else cell += char;
+  }
+  row.push(cell.trim());
+  if (row.some(value => value !== '')) rows.push(row);
+  return rows;
+}
+
+function csvStudent(headers, values) {
+  const record = Object.fromEntries(headers.map((header, index) => [header, values[index] || '']));
+  const pick = (...keys) => {
+    for (const key of keys) if (record[key]) return record[key].trim();
+    return '';
+  };
+  const branch = pick('branch', 'branches', 'program');
+  const numeric = (value, fallback = 0) => value === '' ? fallback : Number(value);
+  return {
+    rollNo: pick('rollno', 'rollnumber', 'roll', 'rollid', 'studentid').toUpperCase(),
+    name: pick('name', 'fullname', 'studentname', 'firstname'),
+    email: pick('email', 'studentemail', 'academicemail'),
+    phone: pick('phone', 'phonenumber', 'mobile'),
+    college: pick('college', 'collegename'),
+    branch: branch ? branch.split(/[;|]/).map(item => item.trim()).filter(Boolean) : [],
+    department: pick('department', 'dept') || branch,
+    year: numeric(pick('year', 'currentyear'), 1),
+    cgpa: numeric(pick('cgpa'), 0),
+    btech: numeric(pick('btech', 'btechpercentage', 'percentage'), 0),
+    backlogs: numeric(pick('backlogs', 'backlog'), 0),
+    passoutYear: pick('passoutyear', 'graduationyear'),
+    githubUsername: pick('githubusername', 'github'),
+  };
+}
+
+function validateStudent(student) {
+  if (!student.rollNo || !student.name) return 'Each student needs a roll number and name.';
+  if (!student.email) return 'Each student needs an email address for account activation.';
+  if (student.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(student.email)) return `Invalid email for ${student.rollNo}.`;
+  if (![student.year, student.cgpa, student.btech, student.backlogs].every(Number.isFinite)) return `Invalid numeric field for ${student.rollNo}.`;
+  if (student.year < 1 || student.year > 8 || student.cgpa < 0 || student.cgpa > 10 || student.btech < 0 || student.btech > 100 || student.backlogs < 0) return `Numeric value out of range for ${student.rollNo}.`;
+  return '';
+}
+
+function downloadCsvTemplate() {
+  const url = URL.createObjectURL(new Blob([CSV_TEMPLATE], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'student-import-template.csv';
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function AdminStudents() {
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState([]);
+  const [collegeRecords, setCollegeRecords] = useState([]);
   const [search, setSearch] = useState('');
   const [selectedCollege, setSelectedCollege] = useState('All');
   const [selectedBranch, setSelectedBranch] = useState('All');
-  const [colleges, setColleges] = useState(['All']);
-  const [branches, setBranches] = useState(['All']);
   const [page, setPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
   const [editStudent, setEditStudent] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const PER_PAGE = 6;
-
-  useEffect(() => {
-    const fetchStudents = async () => {
-      try {
-        const [studentsSnapshot, resultsSnapshot] = await Promise.all([
-          getDocs(collection(db, 'students')),
-          getDocs(collection(db, 'results')),
-        ]);
-
-        const resultsList = resultsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        const studentsList = studentsSnapshot.docs.map(doc => {
-          const student = { id: doc.id, ...doc.data() };
-          return {
-            ...student,
-            placementIndex: calculatePlacementIndex(student, resultsList, {
-              githubStats: student.githubStats,
-            }),
-          };
-        });
-
-        setStudents(studentsList);
-        
-        // Extract unique filters
-        const uniqueColleges = ['All', ...new Set(studentsList.map(s => s.college).filter(Boolean))];
-        const uniqueBranches = ['All', ...new Set(studentsList.flatMap(s => s.branch || []).filter(Boolean))];
-        setColleges(uniqueColleges);
-        setBranches(uniqueBranches);
-      } catch (error) {
-        console.error("Error fetching students:", error);
-        toast.error('Failed to load students');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchStudents();
-  }, []);
-
-  const filtered = students.filter(s => {
-    const matchesSearch = (s.name || '').toLowerCase().includes(search.toLowerCase()) || 
-                          (s.rollNo || '').toLowerCase().includes(search.toLowerCase());
-    const matchesCollege = selectedCollege === 'All' || s.college === selectedCollege;
-    const matchesBranch = selectedBranch === 'All' || (s.branch && s.branch.includes(selectedBranch));
-    return matchesSearch && matchesCollege && matchesBranch;
-  });
-
-  const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
-  const totalPages = Math.ceil(filtered.length / PER_PAGE);
-
-  const handleDelete = async (id) => { 
-    setIsDeleting(true);
+  const [isImporting, setIsImporting] = useState(false);
+  const [activationStatus, setActivationStatus] = useState(null);
+  const [sendingActivations, setSendingActivations] = useState(false);
+  const fileInput = useRef(null);
+  const PER_PAGE = 8;
+  const activationRequest = async (action, body) => {
+    const response = await fetch(`/api/proxy?path=auth/${action}`, {
+      method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('s360_token') || ''}` }, ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Activation request failed.');
+    return data;
+  };
+  const refreshActivationStatus = () => activationRequest('activation-status').then(setActivationStatus).catch(() => setActivationStatus(null));
+  const showActivation = result => {
+    const activation = result?.activation || result;
+    if (!activation?.statuses) return;
+    if (activation.statuses.email_conflict || activation.statuses.setup_failed) toast.error('Student saved, but login setup needs attention. Check for an existing account with this email, then retry activation.');
+    else if (activation.statuses.active) toast('This student already has an active login. Their password was not changed.');
+    else if (activation.statuses.missing_email) toast.error('Add a valid student email before sending activation.');
+    else if (activation.delivery?.sent) toast.success(`${activation.delivery.sent} activation email(s) accepted for delivery.`);
+    else if (activation.delivery?.configured === false) toast('Activation queued. Email delivery setup is required.');
+    else if (activation.delivery?.failed) toast.error('Activation queued for retry because email delivery failed.');
+    else if (activation.statuses.recently_sent) toast('An activation email was just sent. Please wait a minute before resending.');
+    else toast('Activation queued. Send pending activations to process it.');
+    refreshActivationStatus();
+  };
+  const resendActivation = async student => {
+    setSendingActivations(true);
+    try { showActivation(await activationRequest('resend-activation', { studentId: student.id })); }
+    catch (error) { toast.error(error.message); }
+    finally { setSendingActivations(false); }
+  };
+  const sendPendingActivations = async () => {
+    setSendingActivations(true);
     try {
-      await deleteDoc(doc(db, 'students', id));
-      setStudents(prev => prev.filter(s => s.id !== id)); 
-      setDeleteConfirm(null); 
-      toast.success('Student removed'); 
-    } catch (err) {
-      toast.error('Failed to delete student');
+      const result = await activationRequest('process-activations', {});
+      setActivationStatus(result);
+      if (!result.configured) toast.error('Configure email delivery before sending activations.');
+      else if (result.failed) toast.error('Email delivery failed. Pending activations will be retried.');
+      else toast(`${result.sent} email(s) accepted for delivery; ${result.pending} pending.${!result.sent && result.pending ? ' The daily sending limit or retry delay may apply.' : ''}`);
+    } catch (error) { toast.error(error.message); }
+    finally { setSendingActivations(false); }
+  };
+
+  const fetchStudents = async () => {
+    setLoading(true);
+    try {
+      const [studentsSnapshot, resultsSnapshot, collegesSnapshot] = await Promise.all([
+        getDocs(collection(db, 'students')),
+        getDocs(collection(db, 'results')).catch(error => {
+          console.warn('Could not load results for placement scores:', error);
+          return null;
+        }),
+        getDocs(collection(db, 'colleges')).catch(error => {
+          console.warn('Could not load colleges:', error);
+          return null;
+        }),
+      ]);
+      setCollegeRecords(collegesSnapshot?.docs.map(item => ({ id: item.id, ...item.data() })) || []);
+      const results = resultsSnapshot?.docs.map(item => ({ id: item.id, ...item.data() })) || [];
+      setStudents(studentsSnapshot.docs.map(item => {
+        const student = { id: item.id, ...item.data() };
+        return { ...student, placementIndex: calculatePlacementIndex(student, results, { githubStats: student.githubStats }) };
+      }));
+    } catch (error) {
+      console.error('Error fetching students:', error);
+      toast.error('Failed to load students. Check administrator access and try again.');
     } finally {
-      setIsDeleting(false);
+      setLoading(false);
     }
   };
 
-  const handleSave = async (data) => {
+  useEffect(() => { fetchStudents(); refreshActivationStatus(); }, []);
+
+  const colleges = ['All', ...new Set(students.map(student => student.college).filter(Boolean))];
+  const branches = ['All', ...new Set(students.flatMap(student => branchesAsText(student.branch).split(',').map(value => value.trim()).filter(Boolean)))];
+  const filtered = students.filter(student => {
+    const query = search.toLowerCase();
+    const matchesSearch = (student.name || '').toLowerCase().includes(query) || (student.rollNo || '').toLowerCase().includes(query) || (student.email || '').toLowerCase().includes(query);
+    const matchesCollege = selectedCollege === 'All' || student.college === selectedCollege;
+    const matchesBranch = selectedBranch === 'All' || branchesAsText(student.branch).split(',').map(value => value.trim()).includes(selectedBranch);
+    return matchesSearch && matchesCollege && matchesBranch;
+  });
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  useEffect(() => { setPage(current => Math.min(current, totalPages)); }, [totalPages]);
+  const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
+  const handleDelete = async id => {
+    if (isDeleting) return;
+    setIsDeleting(true);
+    try {
+      await deleteDoc(doc(db, 'students', id));
+      setStudents(previous => previous.filter(student => student.id !== id));
+      setDeleteConfirm(null);
+      toast.success('Student removed');
+    } catch (error) {
+      console.error('Failed to delete student:', error);
+      const code = error?.code || 'unknown';
+      if (code === 'not-found') {
+        setStudents(previous => previous.filter(student => student.id !== id));
+        setDeleteConfirm(null);
+        toast('This student was already removed.');
+        return;
+      }
+      toast.error(code === 'permission-denied'
+        ? 'You need administrator access to delete students.'
+        : code === 'unauthenticated'
+          ? 'Your session has expired. Sign in again to delete students.'
+          : `Could not delete student (${code}): ${error?.message || 'Unknown error'}`);
+    } finally { setIsDeleting(false); }
+  };
+
+  const handleSave = async form => {
+    const student = {
+      ...form,
+      rollNo: form.rollNo.trim().toUpperCase(),
+      name: form.name.trim(),
+      email: form.email.trim(),
+      branch: form.branch.trim() ? [form.branch.trim()] : [],
+      department: form.department.trim() || form.branch.trim(),
+      year: Number(form.year), cgpa: Number(form.cgpa || 0),
+      btech: Number(form.btech || 0), backlogs: Number(form.backlogs || 0),
+      passoutYear: form.passoutYear ? String(form.passoutYear) : '',
+    };
+    const selectedCollege = collegeRecords.find(item => item.name === student.college);
+    if (!student.college) { toast.error('Select a college.'); return; }
+    if (!editStudent && !selectedCollege) { toast.error('Select a college from the managed Colleges list.'); return; }
+    if (selectedCollege?.branches?.length && student.branch.length && !selectedCollege.branches.includes(student.branch[0])) {
+      toast.error('Select a branch belonging to the chosen college.'); return;
+    }
+    const validationError = validateStudent(student);
+    if (validationError) { toast.error(validationError); return; }
     setIsSaving(true);
     try {
       if (editStudent?.id) {
-        await updateDoc(doc(db, 'students', editStudent.id), data);
-        setStudents(prev => prev.map(s => s.id === editStudent.id ? { ...s, ...data } : s));
+        if (student.rollNo !== editStudent.id) {
+          toast.error('Roll number cannot be changed after a student is added.');
+          return;
+        }
+        await updateDoc(doc(db, 'students', editStudent.id), student);
+        setStudents(previous => previous.map(item => item.id === editStudent.id ? { ...item, ...student } : item));
         toast.success('Student updated');
       } else {
-        const newRoll = data.rollNo || `temp_${Date.now()}`;
-        await setDoc(doc(db, 'students', newRoll), data);
-        setStudents(prev => [{ ...data, id: newRoll }, ...prev]);
+        const existing = students.some(item => item.id.toUpperCase() === student.rollNo);
+        if (existing) { toast.error('A student with this roll number already exists.'); return; }
+        const result = await setDoc(doc(db, 'students', student.rollNo), student);
+        showActivation(result);
+        setStudents(previous => [{ ...student, id: student.rollNo }, ...previous]);
         toast.success('Student added');
       }
-      setModalOpen(false); setEditStudent(null);
-    } catch (err) {
-      toast.error('Failed to save student');
-    } finally {
-      setIsSaving(false);
-    }
+      setModalOpen(false);
+      setEditStudent(null);
+    } catch (error) {
+      console.error('Failed to save student:', error);
+      toast.error('Failed to save student. Check administrator access and try again.');
+    } finally { setIsSaving(false); }
+  };
+
+  const handleCsvImport = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setIsImporting(true);
+    try {
+      const rows = parseCsv(await file.text());
+      if (rows.length < 2) throw new Error('CSV must include a header row and at least one student.');
+      const headers = rows[0].map(value => value.toLowerCase().replace(/[^a-z0-9]/g, ''));
+      const seen = new Set(students.map(student => student.id.toUpperCase()));
+      const pending = [];
+      let skipped = 0;
+      for (let index = 1; index < rows.length; index += 1) {
+        const student = csvStudent(headers, rows[index]);
+        if (validateStudent(student) || seen.has(student.rollNo)) { skipped += 1; continue; }
+        seen.add(student.rollNo);
+        pending.push(student);
+      }
+      if (!pending.length) {
+        toast.error(`No new valid students to import (${skipped} rows skipped).`);
+        return;
+      }
+      for (let offset = 0; offset < pending.length; offset += 50) {
+        const batch = writeBatch(db);
+        pending.slice(offset, offset + 50).forEach(student => batch.set(doc(db, 'students', student.rollNo), student));
+        const result = await batch.commit();
+        showActivation(result);
+      }
+      setStudents(previous => [...pending.map(student => ({ ...student, id: student.rollNo })), ...previous]);
+      toast.success(`Imported ${pending.length} students; skipped ${skipped} invalid or duplicate rows.`);
+    } catch (error) {
+      console.error('CSV student import failed:', error);
+      toast.error(error.message || 'Could not import this CSV file.');
+    } finally { setIsImporting(false); }
   };
 
   if (loading) return <LoadingSkeleton type="table" rows={6} />;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      <div className="page-header" style={{ marginBottom: 0 }}>
-        <div>
-          <h1 className="page-title">Student Management</h1>
-          <p className="page-subtitle">{filtered.length} students total</p>
-        </div>
-        <div style={{ display: 'flex', gap: '0.625rem' }}>
-          <button onClick={() => exportToCSV(students, 'students')} className="btn btn-ghost">
-            <Download size={14} /> Export
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div><h1 className="text-2xl font-bold text-white">Student Management</h1><p className="mt-1 text-sm text-zinc-400">{students.length} students</p></div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={downloadCsvTemplate} className="btn btn-ghost"><Download size={14} /> CSV template</button>
+          <button onClick={() => exportToCSV(students, 'students')} className="btn btn-ghost"><Download size={14} /> Export</button>
+          <button onClick={() => fileInput.current?.click()} disabled={isImporting} className="btn btn-ghost">
+            {isImporting ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />} Import CSV
           </button>
-          <button onClick={() => { setEditStudent(null); setModalOpen(true); }} className="btn btn-primary">
-            <Plus size={14} /> Add Student
-          </button>
+          <input ref={fileInput} type="file" accept=".csv,text/csv" onChange={handleCsvImport} className="hidden" />
+          <button onClick={() => { setEditStudent(null); setModalOpen(true); }} className="btn btn-primary"><Plus size={14} /> Add Student</button>
         </div>
       </div>
 
-      {/* Filters */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 240 }}>
-          <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#71717a' }} />
-          <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
-            placeholder="Search by name or roll number…"
-            className="input w-full" style={{ paddingLeft: 36, background: '#0a0a0a', border: '1px solid #27272a' }} />
-        </div>
-        
-        <select value={selectedCollege} onChange={e => { setSelectedCollege(e.target.value); setPage(1); }}
-          className="input" style={{ minWidth: 150, background: '#0a0a0a', border: '1px solid #27272a', color: '#fafafa' }}>
-          {colleges.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-
-        <select value={selectedBranch} onChange={e => { setSelectedBranch(e.target.value); setPage(1); }}
-          className="input" style={{ minWidth: 150, background: '#0a0a0a', border: '1px solid #27272a', color: '#fafafa' }}>
-          {branches.map(b => <option key={b} value={b}>{b}</option>)}
-        </select>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 p-4">
+        <p className="text-sm text-zinc-400">{activationStatus
+          ? `${activationStatus.pending} activation email(s) pending.${activationStatus.configured ? '' : ' Email delivery setup is required before invitations can be sent.'}`
+          : 'Students receive an activation email to set their own password. Use the envelope action to send or resend an invitation.'}</p>
+        <button type="button" onClick={sendPendingActivations} disabled={sendingActivations} className="btn btn-ghost"><Mail size={14} />{sendingActivations ? 'Processing…' : 'Send pending activations'}</button>
       </div>
 
-      {/* Table */}
-      <div className="table-wrapper">
-        <div className="table-scroll">
-          <table className="w-full">
-            <thead>
-              <tr>
-                {['Student', 'Roll No.', 'College', 'Branch', 'Backlogs', 'B.Tech %', 'PI Score', 'Actions'].map(h => (
-                  <th key={h} className="text-left py-3 px-4" style={{ color: '#71717a', fontWeight: 600, fontSize: '0.8125rem' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <AnimatePresence>
-                {paged.map((s, i) => (
-                  <motion.tr key={s.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ delay: i * 0.04 }} className="border-b border-zinc-800/50">
-                    <td className="py-4 px-4">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <div style={{ width: 34, height: 34, borderRadius: '50%', background: getAvatarColor(s.name || s.rollNo), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6875rem', fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                          {generateInitials(s.name || s.rollNo || 'S')}
-                        </div>
-                        <div>
-                          <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#fafafa' }}>{s.name || 'Unknown'}</p>
-                          <p style={{ fontSize: '0.75rem', color: '#71717a', marginTop: 2 }}>Passout: {s.passoutYear || 'N/A'}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">{s.rollNo}</td>
-                    <td className="py-4 px-4">{s.college || 'N/A'}</td>
-                    <td className="py-4 px-4">{s.branch ? s.branch.join(', ') : 'N/A'}</td>
-                    <td className="py-4 px-4"><span style={{ color: s.backlogs > 0 ? '#ef4444' : '#10b981', fontWeight: 600 }}>{s.backlogs || 0}</span></td>
-                    <td className="py-4 px-4"><span style={{ fontWeight: 700, color: '#f59e0b' }}>{s.btech || '0'}%</span></td>
-                    <td className="py-4 px-4">
-                      <span
-                        className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold"
-                        style={{
-                          background: s.placementIndex >= 80 ? 'rgba(16,185,129,0.12)' : s.placementIndex >= 65 ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.12)',
-                          color: s.placementIndex >= 80 ? '#10b981' : s.placementIndex >= 65 ? '#f59e0b' : '#ef4444',
-                          border: `1px solid ${s.placementIndex >= 80 ? 'rgba(16,185,129,0.3)' : s.placementIndex >= 65 ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.3)'}`,
-                        }}
-                      >
-                        {s.placementIndex ?? 0}/100
-                      </span>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div style={{ display: 'flex', gap: '0.375rem' }}>
-                        <button onClick={() => { setEditStudent(s); setModalOpen(true); }}
-                          style={{ width: 30, height: 30, borderRadius: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(249, 115, 22,0.1)', color: '#fdba74', border: 'none', cursor: 'pointer' }}><Edit2 size={13} /></button>
-                        <button onClick={() => setDeleteConfirm(s.id)}
-                          style={{ width: 30, height: 30, borderRadius: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}><Trash2 size={13} /></button>
-                      </div>
-                    </td>
-                  </motion.tr>
-                ))}
-              </AnimatePresence>
-              {paged.length === 0 && (
-                <tr><td colSpan={7} className="text-center py-16 text-base" style={{ color: '#71717a' }}>No students found</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        {totalPages > 1 && (
-          <div className="table-pagination">
-            <span>Page {page} of {totalPages}</span>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="btn btn-ghost" style={{ padding: '0.375rem 0.75rem', fontSize: '0.8125rem' }}>Previous</button>
-              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="btn btn-ghost" style={{ padding: '0.375rem 0.75rem', fontSize: '0.8125rem' }}>Next</button>
-            </div>
-          </div>
-        )}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative min-w-[220px] flex-1"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+          <input value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="Search name, email, or roll number" className="input w-full pl-9" /></div>
+        <select value={selectedCollege} onChange={event => { setSelectedCollege(event.target.value); setPage(1); }} className="input"><option value="All">All colleges</option>{colleges.filter(value => value !== 'All').map(value => <option key={value}>{value}</option>)}</select>
+        <select value={selectedBranch} onChange={event => { setSelectedBranch(event.target.value); setPage(1); }} className="input"><option value="All">All branches</option>{branches.filter(value => value !== 'All').map(value => <option key={value}>{value}</option>)}</select>
       </div>
 
-      {/* Modals */}
-      <AnimatePresence>
-        {modalOpen && (
-          <StudentModal 
-            student={editStudent} 
-            onClose={() => { setModalOpen(false); setEditStudent(null); }} 
-            onSave={handleSave} 
-            isSaving={isSaving} 
-          />
-        )}
-      </AnimatePresence>
+      <div className="table-wrapper"><div className="table-scroll"><table className="w-full"><thead><tr>
+        {['Student', 'Roll No.', 'College', 'Branch', 'Backlogs', 'B.Tech %', 'PI Score', 'Actions'].map(label => <th key={label} className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">{label}</th>)}
+      </tr></thead><tbody><AnimatePresence>
+        {paged.map((student, index) => <motion.tr key={student.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ delay: index * 0.025 }} className="border-b border-zinc-800/50">
+          <td className="px-4 py-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold text-white" style={{ background: getAvatarColor(student.name || student.rollNo || 'S') }}>{generateInitials(student.name || student.rollNo || 'S')}</div><div><div className="font-semibold text-zinc-100">{student.name || 'Unknown'}</div><div className="text-xs text-zinc-500">{student.email || student.passoutYear ? `${student.email || ''}${student.email && student.passoutYear ? ' · ' : ''}${student.passoutYear ? `Passout ${student.passoutYear}` : ''}` : 'No email'}</div></div></div></td>
+          <td className="px-4 py-4">{student.rollNo || student.id}</td><td className="px-4 py-4">{student.college || '—'}</td><td className="px-4 py-4">{branchesAsText(student.branch) || student.department || '—'}</td>
+          <td className="px-4 py-4"><span style={{ color: Number(student.backlogs) > 0 ? '#ef4444' : '#10b981', fontWeight: 600 }}>{student.backlogs || 0}</span></td><td className="px-4 py-4">{student.btech || 0}%</td><td className="px-4 py-4">{student.placementIndex ?? 0}/100</td>
+          <td className="px-4 py-4"><div className="flex gap-2"><button title="Edit student" onClick={() => { setEditStudent(student); setModalOpen(true); }} className="rounded-lg bg-orange-500/10 p-2 text-orange-300"><Edit2 size={14} /></button><button type="button" title="Send activation email" disabled={sendingActivations || !student.email} onClick={() => resendActivation(student)} className="rounded-lg bg-blue-500/10 p-2 text-blue-300 disabled:opacity-40"><Mail size={14} /></button><button title="Delete student" onClick={() => setDeleteConfirm(student.id)} className="rounded-lg bg-red-500/10 p-2 text-red-400"><Trash2 size={14} /></button></div></td>
+        </motion.tr>)}
+      </AnimatePresence>{paged.length === 0 && <tr><td colSpan={8} className="py-14 text-center text-zinc-500">No students found. Add one manually or import a CSV.</td></tr>}</tbody></table></div>
+        {filtered.length > PER_PAGE && <div className="flex items-center justify-between border-t border-zinc-800 px-4 py-3 text-sm text-zinc-400"><span>Page {page} of {totalPages}</span><div className="flex gap-2"><button onClick={() => setPage(value => Math.max(1, value - 1))} disabled={page === 1} className="btn btn-ghost">Previous</button><button onClick={() => setPage(value => Math.min(totalPages, value + 1))} disabled={page === totalPages} className="btn btn-ghost">Next</button></div></div>}
+      </div>
 
-      <AnimatePresence>
-        {deleteConfirm && createPortal(
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-            style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)' }} onClick={() => setDeleteConfirm(null)}>
-            <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}
-              onClick={e => e.stopPropagation()} className="rounded-2xl p-8 max-w-sm w-full"
-              style={{ background: '#0a0a0a', border: '1px solid #27272a', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8)' }}>
-              <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-5">
-                <Trash2 size={32} className="text-red-500" />
-              </div>
-              <h3 className="font-bold text-xl text-white text-center mb-2">Remove Student?</h3>
-              <p className="text-sm text-center mb-8" style={{ color: '#a1a1aa' }}>This action is permanent and will remove all student records and associated data.</p>
-              <div className="flex gap-3">
-                <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-3.5 rounded-xl text-sm font-medium transition-colors hover:bg-zinc-800 bg-zinc-900 text-zinc-400" disabled={isDeleting}
-                  style={{ opacity: isDeleting ? 0.5 : 1 }}>Cancel</button>
-                <button onClick={() => handleDelete(deleteConfirm)} disabled={isDeleting} className="flex-1 py-3.5 rounded-xl flex items-center justify-center gap-2 text-sm font-bold text-white transition-transform hover:scale-[1.02]"
-                  style={{ background: '#ef4444', opacity: isDeleting ? 0.5 : 1 }}>
-                  {isDeleting ? <Loader2 size={16} className="animate-spin" /> : 'Delete Record'}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>,
-          document.body
-        )}
-      </AnimatePresence>
+      <AnimatePresence>{modalOpen && <StudentModal student={editStudent} collegeRecords={collegeRecords} onClose={() => { setModalOpen(false); setEditStudent(null); }} onSave={handleSave} isSaving={isSaving} />}</AnimatePresence>
+      {createPortal(<AnimatePresence>{deleteConfirm && (<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-4" onClick={() => { if (!isDeleting) setDeleteConfirm(null); }}><motion.div initial={{ scale: 0.96 }} animate={{ scale: 1 }} onClick={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="delete-student-title" className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-950 p-7"><Trash2 size={28} className="mx-auto mb-4 text-red-400" /><h2 id="delete-student-title" className="text-center text-xl font-bold text-white">Remove student?</h2><p className="my-4 text-center text-sm text-zinc-400">This removes the student record from the portal.</p><div className="flex gap-3"><button className="btn btn-ghost flex-1" onClick={() => setDeleteConfirm(null)} disabled={isDeleting}>Cancel</button><button className="btn flex-1 bg-red-600 text-white" onClick={() => handleDelete(deleteConfirm)} disabled={isDeleting}>{isDeleting ? <Loader2 size={15} className="animate-spin" /> : 'Delete'}</button></div></motion.div></motion.div>)}</AnimatePresence>, document.body)}
+      <p className="text-xs text-zinc-500">CSV requires <code>rollNo</code>, <code>name</code> and <code>email</code>. Existing roll numbers are skipped. New students receive an activation email when delivery is configured.</p>
     </div>
   );
 }
 
-function StudentModal({ student, onClose, onSave, isSaving }) {
+function StudentModal({ student, collegeRecords, onClose, onSave, isSaving }) {
   const [form, setForm] = useState({
-    name: student?.name || '', email: student?.email || '', rollNo: student?.rollNo || '',
-    department: student?.department || 'Computer Science', year: student?.year || 1,
-    cgpa: student?.cgpa || 0, phone: student?.phone || '', githubUsername: student?.githubUsername || '',
+    name: student?.name || '', email: student?.email || '', rollNo: student?.rollNo || '', phone: student?.phone || '',
+    college: student?.college || '', branch: Array.isArray(student?.branch) ? (student.branch[0] || '') : (student?.branch || ''), department: student?.department || '',
+    year: student?.year || 1, cgpa: student?.cgpa ?? '', btech: student?.btech ?? '', backlogs: student?.backlogs ?? 0,
+    passoutYear: student?.passoutYear || '', githubUsername: student?.githubUsername || '',
   });
-  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
-
-  return createPortal(
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-      style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)' }} onClick={onClose}>
-      <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}
-        onClick={e => e.stopPropagation()} className="rounded-2xl p-8 w-full max-w-lg overflow-y-auto custom-scrollbar"
-        style={{ background: '#0a0a0a', border: '1px solid #27272a', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8)' }}>
-        
-        <style>
-          {`
-            .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-            .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-            .custom-scrollbar::-webkit-scrollbar-thumb { background: #27272a; border-radius: 10px; }
-          `}
-        </style>
-
-        <div className="flex items-center justify-between mb-7">
-          <h3 className="font-bold text-xl text-white">{student ? 'Edit Student Profile' : 'Add New Student'}</h3>
-          <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors"><X size={24} /></button>
-        </div>
-        <div className="grid grid-cols-2 gap-5">
-          {[
-            { label: 'Full Name', key: 'name', type: 'text', col: 2, placeholder: 'e.g. John Doe' },
-            { label: 'Academic Email', key: 'email', type: 'email', col: 2, placeholder: 'e.g. john@university.edu' },
-            { label: 'Roll Number', key: 'rollNo', type: 'text', col: 1, placeholder: 'e.g. 21P31A0501' },
-            { label: 'Phone', key: 'phone', type: 'text', col: 1, placeholder: 'e.g. +91 98765 43210' },
-            { label: 'GitHub Username', key: 'githubUsername', type: 'text', col: 1, placeholder: 'e.g. johndoe' },
-            { label: 'Current CGPA', key: 'cgpa', type: 'number', col: 1, placeholder: '0.00' },
-          ].map(f => (
-            <div key={f.key} className={f.col === 2 ? 'col-span-2' : ''}>
-              <label className="block text-sm font-semibold mb-2 text-zinc-300">{f.label}</label>
-              <input type={f.type} value={form[f.key]} onChange={set(f.key)} placeholder={f.placeholder}
-                className="w-full px-4 py-3 rounded-xl text-sm outline-none transition-all focus:ring-2 focus:ring-orange-500/30"
-                style={{ background: '#000000', border: '1px solid #27272a', color: '#fafafa' }} />
-            </div>
-          ))}
-          <div>
-            <label className="block text-sm font-semibold mb-2 text-zinc-300">Department</label>
-            <select value={form.department} onChange={set('department')} className="w-full px-4 py-3 rounded-xl text-sm outline-none"
-              style={{ background: '#000000', border: '1px solid #27272a', color: '#fafafa' }}>
-              {DEPTS.filter(d => d !== 'All').map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-semibold mb-2 text-zinc-300">Current Year</label>
-            <select value={form.year} onChange={set('year')} className="w-full px-4 py-3 rounded-xl text-sm outline-none"
-              style={{ background: '#000000', border: '1px solid #27272a', color: '#fafafa' }}>
-              {[1, 2, 3, 4].map(y => <option key={y} value={y}>Year {y}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="flex gap-3 mt-8 pt-4 border-t border-zinc-800">
-          <button onClick={onClose} disabled={isSaving} className="flex-1 py-3.5 rounded-xl text-sm font-medium transition-colors hover:bg-zinc-800 bg-zinc-900 text-zinc-400" style={{ opacity: isSaving ? 0.5 : 1 }}>Cancel</button>
-          <button onClick={() => onSave(form)} disabled={isSaving} className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-bold text-white transition-all hover:scale-[1.02]"
-            style={{ background: 'linear-gradient(135deg,#f97316,#f59e0b)', opacity: isSaving ? 0.7 : 1 }}>
-            {isSaving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} 
-            {isSaving ? 'Saving...' : (student ? 'Update Profile' : 'Add Student')}
-          </button>
-        </div>
-      </motion.div>
-    </motion.div>,
-    document.body
-  );
+  const set = key => event => setForm(previous => ({ ...previous, [key]: event.target.value }));
+  const selectedCollege = collegeRecords.find(item => item.name === form.college);
+  const branchOptions = selectedCollege?.branches || [];
+  const fields = [
+    ['Full name *', 'name', 'text'], ['Email *', 'email', 'email'], ['Roll number *', 'rollNo', 'text'], ['Phone', 'phone', 'tel'],
+    ['Department', 'department', 'text'], ['Current year', 'year', 'number'],
+    ['CGPA (0–10)', 'cgpa', 'number'], ['B.Tech %', 'btech', 'number'], ['Backlogs', 'backlogs', 'number'], ['Passout year', 'passoutYear', 'number'], ['GitHub username', 'githubUsername', 'text'],
+  ];
+  return createPortal(<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
+    <motion.div initial={{ scale: 0.96, y: 12 }} animate={{ scale: 1, y: 0 }} onClick={event => event.stopPropagation()} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-950 p-6">
+      <div className="mb-6 flex items-center justify-between"><div><h2 className="text-xl font-bold text-white">{student ? 'Edit student' : 'Add student'}</h2><p className="mt-1 text-sm text-zinc-400">Fields marked * are required.</p></div><button onClick={onClose} className="text-zinc-400 hover:text-white"><X size={22} /></button></div>
+      <form onSubmit={event => { event.preventDefault(); onSave(form); }}><div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {fields.map(([label, key, type]) => <label key={key} className="text-sm font-medium text-zinc-300">{label}<input required={key === 'name' || key === 'rollNo' || key === 'email'} min={type === 'number' && key === 'year' ? 1 : undefined} max={key === 'year' ? 8 : key === 'cgpa' ? 10 : key === 'btech' ? 100 : undefined} step={key === 'cgpa' ? '0.01' : 'any'} type={type} value={form[key]} onChange={set(key)} disabled={student && key === 'rollNo'} className="mt-2 w-full rounded-xl border border-zinc-800 bg-black px-3 py-3 text-white outline-none focus:border-orange-500" /></label>)}
+        <label className="text-sm font-medium text-zinc-300">College *<select required value={form.college} onChange={event => setForm(previous => ({ ...previous, college: event.target.value, branch: '' }))} className="mt-2 w-full rounded-xl border border-zinc-800 bg-black px-3 py-3 text-white outline-none focus:border-orange-500"><option value="">Select a college</option>{collegeRecords.map(item => <option key={item.id} value={item.name}>{item.name}</option>)}{form.college && !collegeRecords.some(item => item.name === form.college) && <option value={form.college}>{form.college} (existing record)</option>}</select></label>
+        <label className="text-sm font-medium text-zinc-300">Branch *<select required value={form.branch} disabled={!form.college} onChange={set('branch')} className="mt-2 w-full rounded-xl border border-zinc-800 bg-black px-3 py-3 text-white outline-none focus:border-orange-500 disabled:opacity-50"><option value="">{form.college ? 'Select a branch' : 'Select a college first'}</option>{branchOptions.map(branch => <option key={branch} value={branch}>{branch}</option>)}{form.branch && !branchOptions.includes(form.branch) && <option value={form.branch}>{form.branch} (existing record)</option>}</select></label>
+      </div><div className="mt-6 flex justify-end gap-3 border-t border-zinc-800 pt-5"><button type="button" onClick={onClose} disabled={isSaving} className="btn btn-ghost">Cancel</button><button type="submit" disabled={isSaving} className="btn btn-primary">{isSaving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}{isSaving ? 'Saving…' : student ? 'Save changes' : 'Add student'}</button></div></form>
+    </motion.div>
+  </motion.div>, document.body);
 }

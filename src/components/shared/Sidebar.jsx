@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, BookOpen, Calendar, Award, User, GitBranch,
   AlertTriangle, Trophy, ChevronLeft, ChevronRight, GraduationCap,
-  Users, ClipboardList, BarChart3, Bell, Star, LogOut,
+  Users, ClipboardList, BarChart3, Bell, Star, LogOut, Building2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
@@ -23,6 +23,7 @@ const studentNav = [
 const adminNav = [
   { icon: LayoutDashboard, label: 'Dashboard',      path: '/admin/dashboard' },
   { icon: Users,           label: 'Students',        path: '/admin/students' },
+  { icon: Building2,       label: 'Colleges',        path: '/admin/colleges' },
   { icon: ClipboardList,   label: 'Exams',           path: '/admin/exams' },
   { icon: Award,           label: 'Results',         path: '/admin/results' },
   { icon: BarChart3,       label: 'Reports',         path: '/admin/reports' },

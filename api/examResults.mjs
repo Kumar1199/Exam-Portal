@@ -1,0 +1,4 @@
+export async function publishBankResult(db,stored,bank,exam) {
+ const pending=!!stored.evaluationPending;
+ await db.collection('results').updateOne({_id:String(stored._id)},{$set:{studentName:stored.studentId,rollNo:stored.studentId,studentRollNo:stored.studentId,examId:stored.examId,subject:exam?.subject||exam?.title,examTitle:exam?.title,source:'electron_app',marks:pending?null:stored.score,totalMarks:bank.totalMarks,percentage:pending?null:stored.percentage,status:pending?'pending':stored.percentage>=40?'passed':'failed',grade:pending?'Pending':stored.percentage>=90?'A+':stored.percentage>=75?'A':stored.percentage>=60?'B':stored.percentage>=40?'C':'F',date:stored.submittedAt||new Date().toISOString(),evaluationPending:pending,passedCases:stored.passedCases??null,totalCases:stored.totalCases??null}},{upsert:true});
+}
