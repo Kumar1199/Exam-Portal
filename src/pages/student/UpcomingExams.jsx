@@ -18,7 +18,7 @@ const CountdownBadge = ({ days }) => {
   );
 };
 
-const SECURE_EXAM_DOWNLOAD_URL = 'https://github.com/Kumar1199/Secure-app/releases/download/v1.0.0/SecureExam.Setup.1.0.0.exe';
+const SECURE_EXAM_DOWNLOAD_URL = 'https://github.com/Kumar1199/Secure-app/releases/download/v1.0.1/SecureExam.Setup.1.0.1.exe';
 
 export default function UpcomingExamsPage() {
   const { user } = useAuth();
