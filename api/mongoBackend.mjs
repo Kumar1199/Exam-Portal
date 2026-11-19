@@ -186,7 +186,7 @@ export async function handleAuth(req, res, action) {
     if (!user?.passwordHash || !(user.passwordHash && safePassword(password, user.passwordSalt, user.passwordHash))) return res.status(401).json({ error: 'Invalid email or password.' });
     if (!['admin', 'student'].includes(requestedRole)) return res.status(400).json({ error: 'Select either Student or Admin before signing in.' });
     if (user.role !== requestedRole) return res.status(403).json({ error: `This account is registered as ${user.role}. Please use the ${user.role === 'admin' ? 'Admin' : 'Student'} sign-in tab.` });
-    const profile = { uid: String(user._id), email: user.email, name: user.name, role: user.role, rollNo: user.rollNo || null, studentId: user.studentId || null };
+    const profile = { uid: String(user._id), email: user.email, name: user.name, role: user.role, canManageAdmins: user.canManageAdmins === true, rollNo: user.rollNo || null, studentId: user.studentId || null };
     const secret = process.env.JWT_SECRET;
     if (!secret) return res.status(500).json({ error: 'JWT_SECRET is not configured on the server.' });
     const token = sign(profile);
@@ -201,8 +201,16 @@ export async function handleAuth(req, res, action) {
     const normalizedEmail = String(email).trim().toLowerCase();
     const salt = crypto.randomBytes(16).toString('hex');
     const passwordHash = crypto.scryptSync(password, salt, 64).toString('hex');
-    await db.collection('users').updateOne({ email: normalizedEmail }, { $set: { email: normalizedEmail, name: name || 'Administrator', role: 'admin', passwordSalt: salt, passwordHash, updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } }, { upsert: true });
+    await db.collection('users').updateOne({ email: normalizedEmail }, { $set: { email: normalizedEmail, name: name || 'Administrator', role: 'admin', canManageAdmins: true, passwordSalt: salt, passwordHash, updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } }, { upsert: true });
     return res.status(201).json({ success: true });
+  }
+  if (action === 'admin-users' && req.method === 'POST') {
+    if (caller?.role !== 'admin' || caller?.canManageAdmins !== true) return res.status(403).json({ error: 'Only the designated super administrator can create administrators.' });
+    const email = String(req.body?.email || '').trim().toLowerCase(), password = String(req.body?.password || ''), name = String(req.body?.name || 'Administrator').trim();
+    if (!email || password.length < 12) return res.status(400).json({ error: 'Provide an email and a password of at least 12 characters.' });
+    const salt = crypto.randomBytes(16).toString('hex'), passwordHash = crypto.scryptSync(password, salt, 64).toString('hex');
+    await db.collection('users').updateOne({ email }, { $set: { email, name, role: 'admin', canManageAdmins: false, passwordSalt: salt, passwordHash, updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } }, { upsert: true });
+    return res.status(201).json({ success: true, email, canManageAdmins: false });
   }
   return res.status(404).json({ error: 'Authentication endpoint not found.' });
 }
