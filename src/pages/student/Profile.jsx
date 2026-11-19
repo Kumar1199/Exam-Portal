@@ -17,13 +17,29 @@ export default function ProfilePage() {
   const [studentData, setStudentData] = useState(null);
   const [studentResults, setStudentResults] = useState([]);
   const [codingProfiles, setCodingProfiles] = useState({ leetcode: null, gfg: null, codechef: null, hackerrank: null });
-  const [form, setForm] = useState({ phone: '' });
+  const [form, setForm] = useState({ phone: '', codingProfiles: { leetcode: '', codechef: '', codeforces: '', hackerrank: '' } });
   const [error, setError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     if (!rollNo) return;
     const fetchProfileData = async () => {
+      // MongoDB is the only profile source.  Never fall back to legacy profile APIs.
+      try {
+        const [studentSnap, resultsSnap] = await Promise.all([
+          getDoc(doc(db, 'students', rollNo)),
+          getDocs(query(collection(db, 'results'), where('rollNo', '==', rollNo))),
+        ]);
+        const student = studentSnap.exists() ? studentSnap.data() : null;
+        if (!student) throw new Error('Student profile not found');
+        setStudentData(student);
+        setStudentResults(resultsSnap.docs.map(item => ({ id: item.id, ...item.data() })));
+        const links = student.codingProfiles || {};
+        setCodingProfiles({ leetcode: links.leetcode ? { lc_profile: links.leetcode } : null, gfg: null, codechef: links.codechef ? { cc_profile: links.codechef } : null, hackerrank: links.hackerrank ? { hr_profile: links.hackerrank } : null, codeforces: links.codeforces ? { profile: links.codeforces } : null });
+        setForm({ phone: student.mobile || student.phone || '', codingProfiles: { leetcode: links.leetcode || '', codechef: links.codechef || '', codeforces: links.codeforces || '', hackerrank: links.hackerrank || '' } });
+      } catch (err) { console.error('Profile fetch error:', err); setError(true); }
+      finally { setLoading(false); }
+      return;
       try {
         const body = JSON.stringify({ roll_no: rollNo });
         const headers = { 'Content-Type': 'application/json' };
@@ -160,6 +176,7 @@ export default function ProfilePage() {
         await setDoc(doc(db, 'students', rollNo), {
           phone: form.phone,
           mobile: form.phone,
+          codingProfiles: form.codingProfiles,
         }, { merge: true });
         toast.success('Profile updated successfully!');
       }
@@ -284,6 +301,18 @@ export default function ProfilePage() {
           <Code size={20} style={{ color: '#f97316' }} /> Coding Profiles
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+          {editing && <div className="md:col-span-2 lg:col-span-4 rounded-2xl p-6" style={{ background: '#121212', border: '1px solid #27272a' }}>
+            <h3 className="font-bold text-base text-white mb-2">Connect coding profiles</h3>
+            <p className="text-sm mb-4" style={{ color: '#a1a1aa' }}>Paste your public profile links. They are saved securely to your student record.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {[['leetcode', 'LeetCode profile URL'], ['codechef', 'CodeChef profile URL'], ['codeforces', 'Codeforces profile URL'], ['hackerrank', 'HackerRank profile URL']].map(([key, label]) => <input key={key} value={form.codingProfiles?.[key] || ''} onChange={e => setForm(current => ({ ...current, codingProfiles: { ...current.codingProfiles, [key]: e.target.value.trim() } }))} placeholder={label} className="rounded-xl px-4 py-3 text-sm text-white" style={{ background: '#18181b', border: '1px solid #3f3f46' }} />)}
+            </div>
+          </div>}
+          {codingProfiles.codeforces && <div className="rounded-2xl p-6" style={{ background: '#121212', border: '1px solid #27272a' }}>
+            <h3 className="font-bold text-base text-white mb-4 flex items-center justify-between">Codeforces <a href={codingProfiles.codeforces.profile} target="_blank" rel="noreferrer" style={{ color: '#4DA3E6' }}><ExternalLink size={16} /></a></h3>
+            <p className="text-sm" style={{ color: '#a1a1aa' }}>Connected profile</p>
+            <p className="text-xs mt-2" style={{ color: '#71717a' }}>Live contest statistics are refreshed from the profile provider.</p>
+          </div>}
           {/* LeetCode */}
           <div className="rounded-2xl p-6" style={{ background: '#121212', border: '1px solid #27272a' }}>
             <h3 className="font-bold text-base text-white mb-4 flex items-center justify-between">

@@ -57,10 +57,9 @@ export default function TopNav({ title = 'Dashboard' }) {
         <Menu size={20} />
       </button>
 
-      {/* Page breadcrumb */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-        <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#fafafa' }}>{title}</span>
-        <span style={{ fontSize: '0.6875rem', fontWeight: 800 }}><span style={{ color: '#4DA3E6' }}>GU</span><span style={{ color: '#E16B1F' }}> Drishti</span></span>
+      {/* Page context; the single GU Drishti wordmark stays in the sidebar. */}
+      <div style={{ minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: '0.9375rem', fontWeight: 700, color: '#fafafa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
       </div>
 
       {/* Search bar */}

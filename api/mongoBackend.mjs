@@ -84,7 +84,7 @@ function canWrite(user, name, operation, id, data = {}) {
     if (name === 'exam_submissions' && operation === 'insert' && String(data.studentId || '').toUpperCase() === roll && String(data.examId || '') === String(user.examId)) return true;
     return false;
   }
-  if (name === 'students' && ['update', 'merge'].includes(operation)) return roll && String(id || '').toUpperCase() === roll && Object.keys(data).every(key => ['phone', 'mobile'].includes(key));
+  if (name === 'students' && ['update', 'merge'].includes(operation)) return roll && String(id || '').toUpperCase() === roll && Object.keys(data).every(key => ['phone', 'mobile', 'codingProfiles'].includes(key));
   return false;
 }
 
@@ -305,22 +305,30 @@ export async function handleMongo(req, res) {
       if (bank) await publishBankResult(db,stored,bank,exam);
       return res.status(201).json({ id: String(submissionId), score:stored.score, passedCases:stored.passedCases,totalCases:stored.totalCases,allPassed:stored.allPassed,evaluationPending:stored.evaluationPending,results:stored.results });
     }
+    if (name === 'exams') delete data.status;
     const result = await collection.insertOne({ ...data, createdAt: data.createdAt || new Date(), updatedAt: new Date() });
+    if (name === 'exams') await ensureExamLifecycle(db, true);
     const activation = name === 'students' ? await prepareStudentActivations(db, [{ ...data, _id: result.insertedId }]) : undefined;
     return res.status(201).json({ id: String(result.insertedId), activation });
   }
   if (operation === 'upsert') {
     const documentId = idValue(id);
+    if (name === 'exams') delete data.status;
     await collection.replaceOne({ _id: documentId }, { ...data, _id: documentId, updatedAt: new Date() }, { upsert: true });
+    if (name === 'exams') await ensureExamLifecycle(db, true);
     const activation = name === 'students' ? await prepareStudentActivations(db, [{ ...data, _id: documentId }]) : undefined;
     return res.status(200).json({ id: String(documentId), activation });
   }
   if (operation === 'merge') {
+    if (name === 'exams') delete data.status;
     await collection.updateOne({ _id: idValue(id) }, { $set: { ...data, updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } }, { upsert: true });
+    if (name === 'exams') await ensureExamLifecycle(db, true);
     return res.status(200).json({ id: String(id) });
   }  if (operation === 'update') {
-    const result = await collection.updateOne({ _id: idValue(id) }, { $set: { ...data, updatedAt: new Date() } });
+    if (name === 'exams') delete data.status;
+    const result = await collection.updateOne({ _id: idValue(id) }, { $set: { ...data, updatedAt: new Date() }, ...(name === 'exams' ? { $unset: { noShowProcessedAt: '' } } : {}) });
     if (!result.matchedCount) return res.status(404).json({ error: 'Record not found.' });
+    if (name === 'exams') await ensureExamLifecycle(db, true);
     return res.status(200).json({ success: true });
   }
   if (operation === 'delete') {

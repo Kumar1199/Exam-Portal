@@ -747,6 +747,13 @@ input, textarea, select { outline: none; font-family: inherit; }
   .page-area { padding: 1.25rem; }
 }
 
+/* Laptop layouts: keep content readable and prevent large empty columns. */
+@media (min-width: 1025px) and (max-width: 1440px) {
+  .page-area { padding: 1.5rem; }
+  .top-nav { padding-inline: 1.25rem; }
+  .sidebar { flex-shrink: 0; }
+}
+
 @media (max-width: 768px) {
   .app-shell { min-height: 100vh; height: auto; overflow: visible; }
   .content-column { min-height: 100vh; }
@@ -757,6 +764,7 @@ input, textarea, select { outline: none; font-family: inherit; }
   .top-nav > div:nth-child(2) { min-width: 0; overflow: hidden; }
   .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
   .top-nav { padding: 0 1rem; }
+  .top-nav > div:last-child { gap: .35rem !important; }
   .page-area { padding: 1rem; }
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
 }

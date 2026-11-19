@@ -113,8 +113,7 @@ export default function LoginPage() {
         >
           {/* Logo */}
           <motion.div variants={itemVariants} className="flex flex-col items-center mb-10">
-            <BrandLogo light className="mb-5" />
-            <h1 className="text-4xl font-black tracking-tighter"><span className="text-[#4DA3E6]">GU</span><span className="text-[#E16B1F]"> Drishti</span></h1>
+            <BrandLogo light className="mb-2" />
 
             <p className="text-zinc-400 text-sm mt-3 font-medium flex items-center gap-2">
               <Sparkles size={14} className="text-orange-400" />
