@@ -777,3 +777,18 @@ select option { background: #18181b; color: #ffffff; }
   .top-nav, .sidebar-header { height: 58px; }
   table { min-width: 640px; }
 }
+
+/* Institutional dark mode: the portal remains dark by default, with GU navy
+   and saffron reserved for navigation and primary actions. */
+html { color-scheme: dark; }
+body, .app-shell { background:#000; color:#fafafa; }
+.top-nav { background:#012E55; border-color:#27272a; }
+.page-title,.card-title,.chart-title { color:#fafafa; }
+.page-subtitle,.card-subtitle { color:#a1a1aa; }
+.card,.chart-card,.table-wrapper { background:#121212; border-color:#27272a; }
+.stat-card { background:#181818; border-color:#27272a; }
+.stat-card-label,.stat-card-sub,tbody td { color:#a1a1aa; }
+.stat-card-value,tbody td:first-child { color:#fafafa; }
+thead tr { background:#0a0a0a; }
+.input,.select,textarea.input { background:#0a0a0a; border-color:#27272a; color:#fafafa; }
+select,select option { background:#18181b; color:#fff; }
