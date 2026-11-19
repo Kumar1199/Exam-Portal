@@ -18,19 +18,32 @@ const ChartTip = ({ active, payload, label }) =>
 
 const DEPT_COLORS = ['#f97316', '#f59e0b', '#06b6d4', '#10b981', '#f59e0b'];
 
-const recentActivity = [];
+const asDate = value => value ? new Date(value) : null;
+const scoreFor = result => {
+  const percentage = Number(result?.percentage);
+  if (Number.isFinite(percentage)) return percentage;
+  const score = Number(result?.score ?? result?.marks);
+  const total = Number(result?.totalMarks ?? result?.total);
+  return Number.isFinite(score) && total > 0 ? (score / total) * 100 : null;
+};
 
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [activeExamsCount, setActiveExamsCount] = useState(0);
   const [students, setStudents] = useState([]);
   const [violationsCount, setViolationsCount] = useState(0);
+  const [results, setResults] = useState([]);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
         // Fetch Exams
-        const examsSnap = await getDocs(collection(db, 'exams'));
+        const [examsSnap, studentsSnap, resultsSnap, violSnap] = await Promise.all([
+          getDocs(collection(db, 'exams')),
+          getDocs(collection(db, 'students')),
+          getDocs(collection(db, 'results')).catch(() => ({ docs: [] })),
+          getDocs(collection(db, 'violations')).catch(() => ({ size: 0 })),
+        ]);
         let count = 0;
         examsSnap.forEach((doc) => {
           if (doc.data().status === 'upcoming') count++;
@@ -38,17 +51,10 @@ export default function AdminDashboard() {
         setActiveExamsCount(count);
 
         // Fetch Students
-        const studentsSnap = await getDocs(collection(db, 'students'));
         const studentsList = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setStudents(studentsList);
-
-        // Fetch Violations
-        try {
-          const violSnap = await getDocs(collection(db, 'violations'));
-          setViolationsCount(violSnap.size);
-        } catch(e) {
-          setViolationsCount(0); // If collection doesn't exist
-        }
+        setResults(resultsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        setViolationsCount(violSnap.size);
       } catch (err) {
         console.error("Error fetching dashboard data:", err);
       } finally {
@@ -62,10 +68,20 @@ export default function AdminDashboard() {
   const totalStudents = students.length;
   const totalColleges = new Set(students.map((s) => s.college).filter(Boolean)).size;
   const totalBranches = new Set(students.flatMap((s) => s.branch || [])).size;
-  const averageCGPA = students.length ? (students.reduce((sum, s) => sum + (parseFloat(s.btech) || 0), 0) / students.length).toFixed(2) : "0.00";
-  const backlogStudents = students.filter((s) => s.backlogs > 0).length;
-
-  const topStudents = [...students].sort((a, b) => (parseFloat(b.btech) || 0) - (parseFloat(a.btech) || 0)).slice(0, 5);
+  const resultScores = results.reduce((byRoll, result) => {
+    const roll = String(result.rollNo || result.studentRollNo || result.studentId || '').toUpperCase();
+    const score = scoreFor(result);
+    if (roll && score !== null) (byRoll[roll] ||= []).push(score);
+    return byRoll;
+  }, {});
+  const topStudents = students.map(student => {
+    const scores = resultScores[String(student.rollNo || student.id || '').toUpperCase()] || [];
+    return { ...student, examScore: scores.length ? Math.round(scores.reduce((sum, value) => sum + value, 0) / scores.length) : null };
+  }).filter(student => student.examScore !== null).sort((a, b) => b.examScore - a.examScore).slice(0, 5);
+  const recentActivity = [
+    ...students.map(student => ({ date: asDate(student.updatedAt || student.createdAt), text: `${student.name || student.rollNo || 'Student'} record updated`, color: '#06b6d4' })),
+    ...results.map(result => ({ date: asDate(result.submittedAt || result.updatedAt || result.createdAt), text: `${result.studentName || result.rollNo || result.studentId || 'Student'} submitted ${result.examTitle || result.exam || 'an exam'}`, color: '#10b981' })),
+  ].filter(item => item.date && !Number.isNaN(item.date.getTime())).sort((a, b) => b.date - a.date).slice(0, 5);
 
   // Compute Chart Data
   const collegeData = Object.entries(students.reduce((acc, s) => {
@@ -101,11 +117,11 @@ export default function AdminDashboard() {
 
       {/* Stat cards */}
       <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-        <StatCard title="Total Students"  value={totalStudents}   subtitle="Enrolled"       icon={Users}         color="#f97316" trend="up"   trendValue="+12"   delay={0}    />
+        <StatCard title="Total Students"  value={totalStudents}   subtitle="Enrolled"       icon={Users}         color="#f97316" trend="none" trendValue=""      delay={0}    />
         <StatCard title="Colleges"        value={totalColleges}   subtitle="Institutions"   icon={BookOpen}      color="#06b6d4" trend="none" trendValue=""      delay={0.05} />
         <StatCard title="Branches"        value={totalBranches}   subtitle="Disciplines"    icon={BookOpen}      color="#f59e0b" trend="none" trendValue=""      delay={0.1}  />
-        <StatCard title="Avg CGPA"        value={averageCGPA}     subtitle="Overall"        icon={TrendingUp}    color="#10b981" trend="up"   trendValue="+0.2"  delay={0.15} />
-        <StatCard title="Backlogs"        value={backlogStudents} subtitle="Needs attention" icon={AlertTriangle} color="#ef4444" trend="down" trendValue="-5"    delay={0.2}  />
+        <StatCard title="Active Exams"    value={activeExamsCount} subtitle="Scheduled"      icon={TrendingUp}    color="#10b981" trend="none" trendValue=""      delay={0.15} />
+        <StatCard title="Violations"      value={violationsCount} subtitle="For review"      icon={AlertTriangle} color="#ef4444" trend="none" trendValue=""      delay={0.2}  />
       </div>
 
       {/* Charts */}
@@ -176,9 +192,9 @@ export default function AdminDashboard() {
                   <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#fafafa', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name || s.rollNo}</p>
                   <p style={{ fontSize: '0.75rem', color: '#71717a' }}>{s.branch?.[0] || 'Unknown Branch'}</p>
                 </div>
-                <span style={{ fontSize: '1rem', fontWeight: 700, color: '#10b981', flexShrink: 0 }}>{s.btech || '0'}%</span>
+                <span style={{ fontSize: '1rem', fontWeight: 700, color: '#10b981', flexShrink: 0 }}>{s.examScore}%</span>
               </div>
-            ))}
+            ))}{topStudents.length === 0 && <p style={{ color: '#71717a', fontSize: '0.8125rem' }}>No submitted exam results yet.</p>}
           </div>
         </div>
 
@@ -191,10 +207,10 @@ export default function AdminDashboard() {
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: item.color, marginTop: 5, flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ fontSize: '0.8125rem', color: '#fafafa', lineHeight: 1.4 }}>{item.text}</p>
-                  <p style={{ fontSize: '0.6875rem', color: '#475569', marginTop: 2 }}>{item.time}</p>
+                  <p style={{ fontSize: '0.6875rem', color: '#475569', marginTop: 2 }}>{item.date.toLocaleString('en-IN')}</p>
                 </div>
               </div>
-            ))}
+            ))}{recentActivity.length === 0 && <p style={{ color: '#71717a', fontSize: '0.8125rem' }}>No database activity yet.</p>}
           </div>
         </div>
       </div>

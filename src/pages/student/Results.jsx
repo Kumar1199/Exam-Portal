@@ -31,7 +31,7 @@ export default function ResultsPage() {
       try {
         const q = query(collection(db, 'results'), where('rollNo', '==', rollNo));
         const snap = await getDocs(q);
-        setMyResults(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setMyResults(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => new Date(b.date || b.submittedAt || b.createdAt || 0) - new Date(a.date || a.submittedAt || a.createdAt || 0)));
       } catch (e) {
         console.error(e);
       } finally {
@@ -41,8 +41,9 @@ export default function ResultsPage() {
     fetchResults();
   }, [rollNo]);
 
-  const chartData = myResults.map(r => ({ subject: r.subject.split(' ')[0], percentage: parseFloat(r.percentage) }));
-  const avgScore = myResults.length ? (myResults.reduce((s, r) => s + parseFloat(r.percentage), 0) / myResults.length).toFixed(1) : 0;
+  const scoredResults = myResults.filter(result => Number.isFinite(Number(result.percentage)));
+  const chartData = scoredResults.map(r => ({ subject: (r.subject || r.examTitle || 'Exam').split(' ')[0], percentage: Number(r.percentage) }));
+  const avgScore = scoredResults.length ? (scoredResults.reduce((s, r) => s + Number(r.percentage), 0) / scoredResults.length).toFixed(1) : 0;
 
   if (loading) return <LoadingSkeleton type="table" rows={4} />;
 
@@ -104,20 +105,20 @@ export default function ResultsPage() {
               className="rounded-2xl p-7" style={{ background: '#121212', border: '1px solid #27272a' }}>
               <div className="flex items-start justify-between mb-5">
                 <div>
-                  <h3 className="font-bold text-lg text-white">{result.subject}</h3>
+                  <h3 className="font-bold text-lg text-white">{result.examTitle || result.subject}</h3>
                   <p className="text-sm mt-1" style={{ color: '#71717a' }}>Published: {formatDate(result.date)}</p>
                 </div>
                 <div className="w-14 h-14 rounded-xl flex items-center justify-center text-xl font-black"
                   style={{ background: `${color}20`, color }}>
-                  {result.grade}
+                  {result.status === 'not_appeared' ? '—' : result.grade}
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3 mt-4">
                 {[
-                  { label: 'Obtained', value: result.marks },
-                  { label: 'Total', value: result.totalMarks },
-                  { label: 'Score', value: `${result.percentage}%`, colored: true },
+                  { label: 'Obtained', value: result.status === 'not_appeared' ? '—' : result.marks },
+                  { label: 'Total', value: result.status === 'not_appeared' ? '—' : result.totalMarks },
+                  { label: 'Score', value: result.status === 'not_appeared' ? 'Not appeared' : `${result.percentage}%`, colored: true },
                 ].map(item => (
                   <div key={item.label} className="text-center p-4 rounded-xl" style={{ background: '#0a0a0a' }}>
                     <p className="text-xl font-bold" style={{ color: item.colored ? color : 'white' }}>{item.value}</p>
@@ -128,15 +129,15 @@ export default function ResultsPage() {
 
               <div className="mt-5">
                 <div className="h-2.5 rounded-full overflow-hidden" style={{ background: '#1c1917' }}>
-                  <motion.div initial={{ width: 0 }} animate={{ width: `${result.percentage}%` }}
+                  <motion.div initial={{ width: 0 }} animate={{ width: `${result.status === 'not_appeared' ? 0 : result.percentage}%` }}
                     transition={{ duration: 0.8, delay: i * 0.1 }}
                     className="h-full rounded-full" style={{ background: `linear-gradient(90deg, ${color}, ${color}88)` }} />
                 </div>
               </div>
 
               <div className="flex items-center justify-between mt-5 pt-4" style={{ borderTop: '1px solid #27272a' }}>
-                <span className="text-sm font-medium status-active px-3 py-1.5 rounded-full">Passed</span>
-                {parseFloat(result.percentage) >= 80 && (
+                <span className="text-sm font-medium status-active px-3 py-1.5 rounded-full">{result.status === 'not_appeared' ? 'Not appeared' : result.status === 'passed' ? 'Passed' : result.status === 'failed' ? 'Failed' : 'Pending'}</span>
+                {Number(result.percentage) >= 80 && (
                   <span className="text-sm font-medium px-3 py-1.5 rounded-full" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
                     🏆 Badge Eligible
                   </span>

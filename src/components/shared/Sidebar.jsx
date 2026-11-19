@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, BookOpen, Calendar, Award, User, GitBranch,
+  LayoutDashboard, BookOpen, Calendar, Award, User,
   AlertTriangle, Trophy, ChevronLeft, ChevronRight, GraduationCap,
   Users, ClipboardList, BarChart3, Bell, Star, LogOut, Building2,
 } from 'lucide-react';
@@ -9,13 +9,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
 import { generateInitials, getAvatarColor } from '../../utils/helpers';
+import BrandLogo from './BrandLogo';
 
 const studentNav = [
   { icon: LayoutDashboard, label: 'Dashboard',      path: '/student/dashboard' },
   { icon: Calendar,        label: 'Upcoming Exams',  path: '/student/exams' },
   { icon: Award,           label: 'Results',         path: '/student/results' },
   { icon: User,            label: 'Profile',         path: '/student/profile' },
-  { icon: GitBranch,       label: 'GitHub Analysis', path: '/student/github' },
   { icon: AlertTriangle,   label: 'Violations',      path: '/student/violations' },
   { icon: Trophy,          label: 'Achievements',    path: '/student/achievements' },
 ];
@@ -28,7 +28,6 @@ const adminNav = [
   { icon: Award,           label: 'Results',         path: '/admin/results' },
   { icon: BarChart3,       label: 'Reports',         path: '/admin/reports' },
   { icon: AlertTriangle,   label: 'Violations',      path: '/admin/violations' },
-  { icon: GitBranch,       label: 'GitHub Analysis', path: '/admin/github' },
   { icon: Star,            label: 'Badges',          path: '/admin/badges' },
   { icon: Bell,            label: 'Notifications',   path: '/admin/notifications' },
 ];
@@ -55,14 +54,7 @@ export default function Sidebar() {
     >
       {/* ── Header ─────────────────────────────── */}
       <div className="sidebar-header">
-        {/* Logo mark */}
-        <motion.div
-          whileHover={{ scale: 1.06 }}
-          className="flex items-center justify-center rounded-xl flex-shrink-0"
-          style={{ width: 36, height: 36, background: 'linear-gradient(135deg,#f97316,#f59e0b)' }}
-        >
-          <GraduationCap size={18} color="white" />
-        </motion.div>
+        <motion.div whileHover={{ scale: 1.04 }} className="flex-shrink-0"><BrandLogo compact /></motion.div>
 
         {/* Brand name — visible only when expanded */}
         <AnimatePresence>
@@ -74,9 +66,7 @@ export default function Sidebar() {
               transition={{ duration: 0.18 }}
               style={{ marginLeft: '0.625rem', overflow: 'hidden' }}
             >
-              <span className="gradient-text" style={{ fontWeight: 700, fontSize: '0.9375rem', letterSpacing: '-0.02em', display: 'block', lineHeight: 1.2 }}>
-                STUDENT 360
-              </span>
+              <span style={{ fontWeight: 800, fontSize: '0.9375rem', letterSpacing: '-0.02em', display: 'block', lineHeight: 1.2 }}><span style={{ color: '#4DA3E6' }}>GU</span><span style={{ color: '#E16B1F' }}> Drishti</span></span>
               <span style={{ fontSize: '0.6875rem', color: '#475569', fontWeight: 500 }}>
                 {role === 'admin' ? 'Admin Portal' : 'Student Portal'}
               </span>

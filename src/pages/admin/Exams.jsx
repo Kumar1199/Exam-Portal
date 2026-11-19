@@ -47,6 +47,8 @@ export default function AdminExams() {
 
   useEffect(() => {
     fetchExams();
+    const timer = window.setInterval(fetchExams, 30000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const filtered = exams.filter(e => filter === 'all' || e.status === filter);
@@ -379,7 +381,7 @@ function ExamModal({ exam, colleges, onClose, onSave, isSaving }) {
               style={{ background: '#000000', border: '1px solid #27272a', color: '#fafafa' }}>
               <option value="MCQ">MCQ (Multiple Choice)</option>
               <option value="Coding">Coding</option>
-              <option value="AI Interview">AI Interview</option>
+              <option value="Mixed">Mixed (MCQ + Coding)</option>
             </select>
           </div>
 
@@ -394,7 +396,7 @@ function ExamModal({ exam, colleges, onClose, onSave, isSaving }) {
             <p className="font-semibold text-orange-200">Question upload format</p>
             {form.examType === 'MCQ' && <p className="mt-1">MCQ CSV: question_id, question, option_a, option_b, option_c, option_d, correct_option, marks. <a className="text-orange-300 underline" href="/templates/mcq-questions-sample.csv" download>Download MCQ sample</a></p>}
             {form.examType === 'Coding' && <p className="mt-1">Coding CSV: problem_id, title, description, input/output format, marks, test input, expected output and visibility. <a className="text-orange-300 underline" href="/templates/coding-questions-sample.csv" download>Download Coding sample</a></p>}
-            {form.examType === 'AI Interview' && <p className="mt-1">Interview CSV: question_id, question, expected_key_points, follow_up, marks. <a className="text-orange-300 underline" href="/templates/interview-questions-sample.csv" download>Download Interview sample</a></p>}
+            {form.examType === 'Mixed' && <p className="mt-1">Mixed exams use both the MCQ and Coding CSV templates under one exam. Upload both files from the Questions action after saving this exam.</p>}
             <p className="mt-2 text-xs text-zinc-400">Save the exam, then use Upload questions CSV on its exam card.</p>
           </div>
 

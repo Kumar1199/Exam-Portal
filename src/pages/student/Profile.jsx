@@ -17,8 +17,7 @@ export default function ProfilePage() {
   const [studentData, setStudentData] = useState(null);
   const [studentResults, setStudentResults] = useState([]);
   const [codingProfiles, setCodingProfiles] = useState({ leetcode: null, gfg: null, codechef: null, hackerrank: null });
-  const [form, setForm] = useState({ phone: '', githubUrl: '' });
-  const [githubConnected, setGithubConnected] = useState(false);
+  const [form, setForm] = useState({ phone: '' });
   const [error, setError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
@@ -32,9 +31,6 @@ export default function ProfilePage() {
         const safeFetch = async (url) => {
           const cacheKey = `${rollNo}_${url}`;
           const cached = sessionStorage.getItem(cacheKey);
-          if (cached) {
-            try { return JSON.parse(cached); } catch (e) {}
-          }
           try {
             const res = await fetch(url, { method: 'POST', headers, body, timeout: 10000 });
             if (!res.ok) {
@@ -42,7 +38,6 @@ export default function ProfilePage() {
               return null;
             }
             const data = await res.json();
-            sessionStorage.setItem(cacheKey, JSON.stringify(data));
             return data;
           } catch (e) {
             console.warn(`⚠️ Fetch failed for ${url}:`, e.message);
@@ -53,9 +48,6 @@ export default function ProfilePage() {
         const fetchStudentDetails = async () => {
           const cacheKey = `${rollNo}_student_details`;
           const cached = sessionStorage.getItem(cacheKey);
-          if (cached) {
-            try { return JSON.parse(cached); } catch (e) {}
-          }
           try {
             const idRes = await fetch('/api/get-student-id-by-rollno', {
               method: 'POST',
@@ -83,7 +75,6 @@ export default function ProfilePage() {
               return null;
             }
             const data = await detailsRes.json();
-            sessionStorage.setItem(cacheKey, JSON.stringify(data));
             return data;
           } catch (e) {
             console.warn(`⚠️ fetchStudentDetails failed:`, e.message);
@@ -135,19 +126,8 @@ export default function ProfilePage() {
         });
 
         // Fetch Firestore profile data
-        let firestoreGithubUrl = '';
-        if (rollNo) {
-          const docRef = doc(db, 'students', rollNo);
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            firestoreGithubUrl = data.githubUrl || '';
-            if (firestoreGithubUrl) setGithubConnected(true);
-          }
-        }
-
         if (finalStudentData) {
-          setForm({ phone: finalStudentData.mobile || '', githubUrl: firestoreGithubUrl });
+          setForm({ phone: finalStudentData.mobile || finalStudentData.phone || '' });
         }
       } catch (err) {
         console.error("❌ Profile fetch error:", err);
@@ -171,37 +151,16 @@ export default function ProfilePage() {
 
   const initials = generateInitials(studentData?.first_name || user?.name || '');
   const avatarColor = getAvatarColor(studentData?.first_name || user?.name || '');
-  const placementIndex = calculatePlacementIndex(studentData, studentResults, {
-    codingProfiles,
-    githubStats: studentData?.githubStats,
-  });
+  const placementIndex = calculatePlacementIndex(studentData, studentResults);
 
   const handleSave = async () => {
     setLoading(true);
     try {
       if (user?.uid) {
-        let githubUsername = '';
-        // Extract username if URL is provided
-        if (form.githubUrl) {
-          const match = form.githubUrl.match(/github\.com\/([a-zA-Z0-9-]+)\/?/);
-          if (match && match[1]) {
-            githubUsername = match[1];
-          } else {
-            toast.error('Invalid GitHub URL. Must be in format https://github.com/username');
-            setLoading(false);
-            return;
-          }
-        }
-
         await setDoc(doc(db, 'students', rollNo), {
-          githubUrl: form.githubUrl,
-          githubUsername: githubUsername
+          phone: form.phone,
+          mobile: form.phone,
         }, { merge: true });
-        
-        // Clear sessionStorage cache to force fresh fetch
-        sessionStorage.removeItem(`${rollNo}_student_details`);
-        
-        setGithubConnected(!!form.githubUrl);
         toast.success('Profile updated successfully!');
       }
     } catch (err) {
@@ -315,60 +274,6 @@ export default function ProfilePage() {
             <InfoRow label="Department" value={studentData?.branch?.join(', ')} />
             <InfoRow label="Passout Year" value={studentData?.passout_year} />
             <InfoRow label="PI Score" value={`${placementIndex}/100`} />
-          </div>
-        </div>
-      </div>
-
-      {/* Integrations Section */}
-      <div className="rounded-2xl p-7" style={{ background: '#121212', border: '1px solid #27272a' }}>
-        <h3 className="font-bold text-base text-white mb-5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(255, 255, 255, 0.1)' }}>
-              <Code size={16} style={{ color: '#ffffff' }} />
-            </div>
-            Integrations
-          </div>
-          {githubConnected && !editing && (
-            <span className="text-xs px-2.5 py-1 rounded-md font-semibold flex items-center gap-1.5" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              Connected
-            </span>
-          )}
-        </h3>
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 py-2">
-            <div>
-              <p className="text-sm font-medium text-white">GitHub Profile</p>
-              <p className="text-xs mt-0.5" style={{ color: '#71717a' }}>Link your GitHub account for advanced analytics</p>
-            </div>
-            <div className="w-full sm:w-1/2">
-              {editing ? (
-                <input
-                  type="url"
-                  placeholder="https://github.com/username"
-                  value={form.githubUrl}
-                  onChange={(e) => setForm({ ...form, githubUrl: e.target.value })}
-                  className="w-full text-sm text-white px-4 py-2.5 rounded-xl outline-none"
-                  style={{ background: '#0a0a0a', border: '1px solid #3f3f46', borderColor: form.githubUrl ? '#f97316' : '#27272a' }}
-                />
-              ) : (
-                <div className="text-sm font-medium text-right w-full flex justify-end">
-                  {form.githubUrl ? (
-                    <a href={form.githubUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:underline" style={{ color: '#f97316' }}>
-                      {form.githubUrl.replace('https://', '')} <ExternalLink size={12} />
-                    </a>
-                  ) : (
-                    <button 
-                      onClick={() => setEditing(true)}
-                      className="px-4 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all hover:scale-105" 
-                      style={{ background: '#f97316', color: 'white', border: '1px solid #ea580c' }}
-                    >
-                      Connect GitHub
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
           </div>
         </div>
       </div>

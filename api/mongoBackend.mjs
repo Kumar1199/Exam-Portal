@@ -21,7 +21,7 @@ function verify(token) {
  const payload=JSON.parse(Buffer.from(body,'base64url').toString()); return payload.exp>Date.now()/1000?payload:null;
 }
 
-let clientPromise, checkinIndexPromise;
+let clientPromise, checkinIndexPromise, coreIndexPromise, lifecyclePromise, lifecycleLastRun = 0;
 const collections = new Set(['users', 'students', 'exams', 'examInvites', 'results', 'violations', 'awardedBadges', 'notifications', 'colleges', 'generated_questions', 'exam_submissions']);
 const idValue = id => ObjectId.isValid(id) && String(new ObjectId(id)) === String(id) ? new ObjectId(id) : id;
 
@@ -37,7 +37,16 @@ export async function getDb() {
   const client = await clientPromise;
   const db = client.db(process.env.MONGODB_DB_NAME || 'student360');
   if (!checkinIndexPromise) checkinIndexPromise = db.collection('proctor_checkins').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }).catch(() => null);
+  if (!coreIndexPromise) coreIndexPromise = Promise.all([
+    db.collection('students').createIndex({ rollNo: 1 }, { unique: true }),
+    db.collection('examInvites').createIndex({ examId: 1, rollNo: 1 }, { unique: true }),
+    db.collection('exam_submissions').createIndex({ examId: 1, studentId: 1 }, { unique: true }),
+    db.collection('results').createIndex({ examId: 1, rollNo: 1 }),
+    db.collection('results').createIndex({ rollNo: 1, date: -1 }),
+    db.collection('violations').createIndex({ examId: 1, date: -1 }),
+  ]).catch(() => null);
   await checkinIndexPromise;
+  await coreIndexPromise;
   return db;
 }
 
@@ -75,8 +84,59 @@ function canWrite(user, name, operation, id, data = {}) {
     if (name === 'exam_submissions' && operation === 'insert' && String(data.studentId || '').toUpperCase() === roll && String(data.examId || '') === String(user.examId)) return true;
     return false;
   }
-  if (name === 'students' && ['update', 'merge'].includes(operation)) return roll && String(id || '').toUpperCase() === roll && Object.keys(data).every(key => ['githubUrl', 'githubUsername'].includes(key));
+  if (name === 'students' && ['update', 'merge'].includes(operation)) return roll && String(id || '').toUpperCase() === roll && Object.keys(data).every(key => ['phone', 'mobile'].includes(key));
   return false;
+}
+
+const notificationTime = value => value ? new Date(value).toISOString() : new Date().toISOString();
+async function syncSystemNotifications(db) {
+  const now = Date.now();
+  const [exams, students, users, banks] = await Promise.all([
+    db.collection('exams').find({ status: { $in: ['upcoming', 'scheduled'] } }).toArray(),
+    db.collection('students').find({}).toArray(),
+    db.collection('users').find({ role: 'student' }).toArray(),
+    db.collection('question_banks').find({}).toArray(),
+  ]);
+  const userRolls = new Set(users.map(user => String(user.rollNo || user.studentId || '').toUpperCase()));
+  const bankIds = new Set(banks.map(bank => String(bank._id)));
+  const write = (id, data) => db.collection('notifications').updateOne(
+    { _id: id }, { $setOnInsert: { ...data, createdAt: new Date(), read: false } }, { upsert: true }
+  );
+  const jobs = [];
+  for (const exam of exams) {
+    const examId = String(exam._id);
+    const startsAt = scheduledStartInIndia(exam);
+    if (!bankIds.has(examId)) jobs.push(write(`system:admin:questions:${examId}`, {
+      recipientRole: 'admin', type: 'warning', title: 'Questions need uploading',
+      message: `“${exam.title || 'Untitled exam'}” is scheduled without an uploaded question bank.`, date: notificationTime(exam.createdAt), examId,
+    }));
+    const eligible = students.filter(student => studentMatchesExam(exam, student));
+    const unregistered = eligible.filter(student => !userRolls.has(String(student.rollNo || student._id || '').toUpperCase()));
+    if (unregistered.length) jobs.push(write(`system:admin:registration:${examId}`, {
+      recipientRole: 'admin', type: 'warning', title: 'Students not registered',
+      message: `${unregistered.length} eligible student(s) for “${exam.title || 'this exam'}” have not activated their portal account.`, date: notificationTime(exam.updatedAt || exam.createdAt), examId,
+    }));
+    for (const student of eligible) {
+      const rollNo = String(student.rollNo || student._id || '').toUpperCase();
+      if (!rollNo) continue;
+      jobs.push(write(`system:student:new-exam:${rollNo}:${examId}`, {
+        recipientRole: 'student', recipientRollNo: rollNo, type: 'info', title: 'New exam scheduled',
+        message: `“${exam.title || 'An exam'}” has been scheduled for you.`, date: notificationTime(exam.createdAt), examId,
+      }));
+      if (Number.isFinite(startsAt)) {
+        const until = startsAt - now;
+        if (until > 0 && until <= 60 * 60 * 1000) jobs.push(write(`system:student:one-hour:${rollNo}:${examId}`, {
+          recipientRole: 'student', recipientRollNo: rollNo, type: 'reminder', title: 'Exam begins within 1 hour',
+          message: `Prepare for “${exam.title || 'your exam'}”. Secure check-in opens 15 minutes before the start time.`, date: new Date().toISOString(), examId,
+        }));
+        if (until > 0 && until <= 15 * 60 * 1000) jobs.push(write(`system:student:fifteen-minutes:${rollNo}:${examId}`, {
+          recipientRole: 'student', recipientRollNo: rollNo, type: 'warning', title: 'Exam check-in is open',
+          message: `“${exam.title || 'Your exam'}” begins within 15 minutes. Complete camera check-in now.`, date: new Date().toISOString(), examId,
+        }));
+      }
+    }
+  }
+  await Promise.all(jobs);
 }
 export async function handleAuth(req, res, action) {
   const db = await getDb();
@@ -87,6 +147,11 @@ export async function handleAuth(req, res, action) {
   }
   const caller = authUser(req);
   const cron = process.env.CRON_SECRET && req.headers.authorization === `Bearer ${process.env.CRON_SECRET}`;
+  if (action === 'lifecycle' && (req.method === 'POST' || req.method === 'GET')) {
+    if (caller?.role !== 'admin' && !cron) return res.status(403).json({ error: 'Administrator or cron access required.' });
+    await ensureExamLifecycle(db, true);
+    return res.status(200).json({ success: true, ranAt: new Date().toISOString() });
+  }
   if (action === 'process-activations' && (req.method === 'POST' || req.method === 'GET')) {
     if (caller?.role !== 'admin' && !cron) return res.status(403).json({ error: 'Administrator access required.' });
     return res.status(200).json(await sendActivations(db, cron ? 100 : 25));
@@ -105,9 +170,12 @@ export async function handleAuth(req, res, action) {
   if (action === 'login' && req.method === 'POST') {
     const email = String(req.body?.email || '').trim().toLowerCase();
     const password = String(req.body?.password || '');
+    const requestedRole = String(req.body?.requestedRole || '').toLowerCase();
     if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
     const user = await db.collection('users').findOne({ email });
     if (!user?.passwordHash || !(user.passwordHash && safePassword(password, user.passwordSalt, user.passwordHash))) return res.status(401).json({ error: 'Invalid email or password.' });
+    if (!['admin', 'student'].includes(requestedRole)) return res.status(400).json({ error: 'Select either Student or Admin before signing in.' });
+    if (user.role !== requestedRole) return res.status(403).json({ error: `This account is registered as ${user.role}. Please use the ${user.role === 'admin' ? 'Admin' : 'Student'} sign-in tab.` });
     const profile = { uid: String(user._id), email: user.email, name: user.name, role: user.role, rollNo: user.rollNo || null, studentId: user.studentId || null };
     const secret = process.env.JWT_SECRET;
     if (!secret) return res.status(500).json({ error: 'JWT_SECRET is not configured on the server.' });
@@ -142,6 +210,8 @@ export async function handleMongo(req, res) {
   if (req.body?.orderBy && (!Array.isArray(req.body.orderBy) || req.body.orderBy.some(item => !/^[A-Za-z][A-Za-z0-9_]*$/.test(item.field) || !['asc','desc'].includes(item.direction)))) return res.status(400).json({ error: 'Invalid sort fields.' });
   if (req.body?.limit !== undefined && (!Number.isInteger(req.body.limit) || req.body.limit < 1 || req.body.limit > 5000)) return res.status(400).json({ error: 'Limit must be between 1 and 5000.' });
   const db = await getDb();
+  await ensureExamLifecycle(db);
+  if (name === 'notifications' && operation === 'list') await syncSystemNotifications(db);
   const collection = db.collection(name);
   if (name === 'generated_questions' && user.role !== 'admin' && !['get','list'].includes(operation) && await db.collection('question_banks').findOne({_id:String(user.examId)})) return res.status(403).json({error:'This exam uses administrator-uploaded questions.'});
   if (user.examId && user.role !== 'admin') {
@@ -169,6 +239,10 @@ export async function handleMongo(req, res) {
   if (operation === 'list' || operation === 'get') {
     if (!canRead(user, name, filters, id)) return res.status(403).json({ error: 'Not allowed to read this data.' });
     let found = operation === 'get' ? await collection.findOne({ _id: idValue(id) }) : await collection.find(filter).sort(Object.fromEntries((req.body?.orderBy || []).map(({field,direction}) => [field, direction === 'desc' ? -1 : 1]))).limit(Math.min(Number(req.body?.limit) || 5000, 5000)).toArray();
+    if (name === 'notifications' && user.role !== 'admin') {
+      const roll = String(user.rollNo || '').toUpperCase();
+      found = found.filter(notification => notification.recipientRole !== 'admin' && (!notification.recipientRollNo || String(notification.recipientRollNo).toUpperCase() === roll));
+    }
     if (name === 'exams' && user.role !== 'admin') {
       const student = await db.collection('students').findOne({ $or: [{ _id: user.rollNo }, { rollNo: user.rollNo }] });
       if (operation === 'get' && found && !studentMatchesExam(found, student)) return res.status(403).json({ error: 'This exam is not scheduled for your college and branch.' });
@@ -181,6 +255,9 @@ export async function handleMongo(req, res) {
   }
 
   if (!canWrite(user, name, operation, id, data || {})) return res.status(403).json({ error: 'Not allowed to change this data.' });
+  if (name === 'students' && data) {
+    for (const field of ['cgpa', 'btech', 'backlogs', 'githubUsername', 'githubUrl', 'githubStats']) delete data[field];
+  }
   if (operation === 'insert') {
     if (name === 'examInvites') {
       const exam=await db.collection('exams').findOne({_id:idValue(String(data?.examId||''))});
@@ -278,8 +355,52 @@ function scheduledStartInIndia(exam) {
   return Date.UTC(Number(year), Number(month) - 1, Number(day), hour, Number(minute), Number(second)) - (5.5 * 60 * 60 * 1000);
 }
 
+function examDurationMs(exam) {
+  const text = String(exam?.durationMinutes || exam?.duration || '60').toLowerCase();
+  const hour = text.match(/(\d+(?:\.\d+)?)\s*(?:hour|hr)/);
+  const minute = text.match(/(\d+(?:\.\d+)?)\s*(?:minute|min)/);
+  const value = hour ? Number(hour[1]) * 60 : minute ? Number(minute[1]) : Number(text);
+  return Math.max(1, Number.isFinite(value) ? value : 60) * 60 * 1000;
+}
+
+async function syncExamLifecycle(db) {
+  const now = Date.now();
+  const exams = await db.collection('exams').find({ status: { $ne: 'cancelled' } }).toArray();
+  for (const exam of exams) {
+    const startAt = scheduledStartInIndia(exam);
+    if (!Number.isFinite(startAt)) continue;
+    const endAt = startAt + examDurationMs(exam);
+    const status = now < startAt ? 'upcoming' : now < endAt ? 'scheduled' : 'completed';
+    if (exam.status !== status) await db.collection('exams').updateOne({ _id: exam._id }, { $set: { status, updatedAt: new Date() } });
+    if (status !== 'completed' || exam.noShowProcessedAt) continue;
+    await db.collection('examInvites').updateMany({ examId: String(exam._id), status: { $ne: 'Expired' } }, { $set: { status: 'Expired', expiredAt: new Date() }, $unset: { examCode: '' } });
+    const students = await db.collection('students').find({}).toArray();
+    const eligible = students.filter(student => studentMatchesExam(exam, student));
+    const [submitted, storedResults] = await Promise.all([
+      db.collection('exam_submissions').find({ examId: String(exam._id) }, { projection: { studentId: 1 } }).toArray(),
+      db.collection('results').find({ examId: String(exam._id) }, { projection: { rollNo: 1, studentId: 1, studentRollNo: 1 } }).toArray(),
+    ]);
+    const appeared = new Set([...submitted, ...storedResults].map(item => String(item.studentId || item.rollNo || item.studentRollNo || '').toUpperCase()));
+    const noShows = eligible.filter(student => !appeared.has(String(student.rollNo || student._id || '').toUpperCase()));
+    if (noShows.length) await db.collection('results').bulkWrite(noShows.map(student => {
+      const rollNo = String(student.rollNo || student._id);
+      return { updateOne: { filter: { _id: `not-appeared:${exam._id}:${rollNo}` }, update: { $setOnInsert: { studentName: student.name || rollNo, rollNo, studentRollNo: rollNo, examId: String(exam._id), subject: exam.subject || exam.title, examTitle: exam.title, source: 'lifecycle', marks: null, totalMarks: null, percentage: null, status: 'not_appeared', grade: 'Not appeared', date: new Date(endAt).toISOString(), createdAt: new Date() } }, upsert: true } };
+    }), { ordered: false });
+    await db.collection('exams').updateOne({ _id: exam._id }, { $set: { noShowProcessedAt: new Date() } });
+  }
+}
+
+async function ensureExamLifecycle(db, force = false) {
+  if (!force && Date.now() - lifecycleLastRun < 30000) return lifecyclePromise || undefined;
+  if (!lifecyclePromise) lifecyclePromise = syncExamLifecycle(db)
+    .then(value => { lifecycleLastRun = Date.now(); return value; })
+    .finally(() => { lifecyclePromise = null; });
+  return lifecyclePromise;
+}
+
 export async function handleExamApi(req, res, action) {
   const db = await getDb();
+  await ensureExamLifecycle(db);
   if (action === 'checkin' && req.method === 'POST') {
     const user = authUser(req);
     if (!user?.examId || !user?.rollNo) return res.status(403).json({ error: 'An active exam session is required.' });
@@ -321,6 +442,8 @@ export async function handleExamApi(req, res, action) {
     if (!student || !exam) return res.status(403).json({ success: false, message: 'The student or exam is no longer available.' });
     if (!studentMatchesExam(exam, student)) return res.status(403).json({ success: false, message: 'This exam is not scheduled for your college and branch.' });
     const startAt = scheduledStartInIndia(exam);
+    const endAt = startAt + examDurationMs(exam);
+    if (Number.isFinite(endAt) && Date.now() >= endAt) return res.status(410).json({ success: false, message: 'This exam has ended. Your access code has expired.' });
     const checkInOpensAt = startAt - (15 * 60 * 1000);
     if (Number.isFinite(startAt) && Date.now() < checkInOpensAt) {
       return res.status(403).json({

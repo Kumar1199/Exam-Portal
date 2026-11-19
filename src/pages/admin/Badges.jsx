@@ -184,7 +184,7 @@ export default function AdminBadges() {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-white text-sm">{student.name || student.rollNo || 'Student'}</p>
                     <p className="text-xs" style={{ color: '#71717a' }}>
-                      {student.rollNo} · {student.branch?.[0] || 'N/A'} · B.Tech: {student.btech || 0}%
+                      {student.rollNo} · {student.branch?.[0] || 'N/A'}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap max-w-xs">

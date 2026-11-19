@@ -9,8 +9,8 @@ export default function DashboardLayout({ title }) {
   return (
     <div className="app-shell">
       {/* Ambient background orbs for premium feel */}
-      <div className="orb" style={{ width: 600, height: 600, background: 'radial-gradient(circle, #f97316 0%, transparent 70%)', top: '-15%', left: '5%', opacity: 0.08 }} />
-      <div className="orb" style={{ width: 500, height: 500, background: 'radial-gradient(circle, #f59e0b 0%, transparent 70%)', bottom: '5%', right: '5%', opacity: 0.05 }} />
+      <div className="orb" style={{ width: 600, height: 600, background: 'radial-gradient(circle, #E16B1F 0%, transparent 70%)', top: '-15%', left: '5%', opacity: 0.08 }} />
+      <div className="orb" style={{ width: 500, height: 500, background: 'radial-gradient(circle, #012E55 0%, transparent 70%)', bottom: '5%', right: '5%', opacity: 0.1 }} />
       <div className="orb" style={{ width: 400, height: 400, background: 'radial-gradient(circle, #06b6d4 0%, transparent 70%)', top: '40%', left: '40%', opacity: 0.03 }} />
 
       {/* Sidebar */}

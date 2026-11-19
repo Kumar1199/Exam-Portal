@@ -44,12 +44,12 @@ export function executionPassed(result, expected) {
   return !result.stderr && !result.compile_output && !result.error && (result.exit_code === undefined || Number(result.exit_code) === 0) && (!result.status || (typeof result.status === 'object' ? result.status.id === 3 : ['success','accepted','ok'].includes(String(result.status).toLowerCase()))) && normalizeOutput(result.stdout) === normalizeOutput(expected);
 }
 export async function gradeBank(bank, payload, runner = executeCode) {
-  if (bank.type === 'AI Interview') return {score:null,totalMarks:bank.totalMarks,percentage:null,evaluationPending:true};
   if (bank.type === 'MCQ') {
     const answers = Array.isArray(payload.answers) ? payload.answers : [];
     const score = bank.questions.reduce((sum,q,i) => sum+(Number.isInteger(answers[i]) && answers[i] === q.correct ? q.marks : 0),0);
     return {score, totalMarks:bank.totalMarks, percentage:Math.round(score/bank.totalMarks*100), evaluationPending:false};
   }
+  const mcqScore=bank.type==='Mixed' ? bank.questions.reduce((sum,q,i)=>sum+(Number.isInteger(payload.answers?.[i])&&payload.answers[i]===q.correct?q.marks:0),0) : 0;
   const solutions = Array.isArray(payload.solutions) ? payload.solutions : [{problemId:bank.problems[0].id, code:payload.code || '', language:payload.language}];
   const deadline=Date.now()+60000;
   const results = []; let passedCases=0, totalCases=0, score=0;
@@ -67,5 +67,6 @@ export async function gradeBank(bank, payload, runner = executeCode) {
     }
     score += problem.marks * problemPassed / problem.testCases.length;
   }
+  score+=mcqScore;
   return {score:Math.round(score*100)/100,totalMarks:bank.totalMarks,percentage:Math.round(score/bank.totalMarks*100),passedCases,totalCases,allPassed:totalCases>0 && passedCases===totalCases,results,evaluationPending:false};
 }

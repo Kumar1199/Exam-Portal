@@ -15,6 +15,8 @@ export default function AdminViolations() {
   const [loading, setLoading] = useState(true);
   const [violations, setViolations] = useState([]);
   const [filter, setFilter] = useState('All');
+  const [examFilter, setExamFilter] = useState('All');
+  const [studentFilter, setStudentFilter] = useState('All');
   const [modalOpen, setModalOpen] = useState(false);
   const [editViolation, setEditViolation] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -26,7 +28,7 @@ export default function AdminViolations() {
     const fetchViolations = async () => {
       try {
         const snap = await getDocs(collection(db, 'violations'));
-        const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
         setViolations(list);
       } catch (err) {
         toast.error("Failed to load violations");
@@ -37,7 +39,13 @@ export default function AdminViolations() {
     fetchViolations();
   }, []);
 
-  const filtered = violations.filter(v => filter === 'All' || v.severity === filter);
+  const exams = [...new Set(violations.map(v => v.exam || v.examId).filter(Boolean))].sort();
+  const students = [...new Set(violations.map(v => v.rollNumber || v.studentName).filter(Boolean))].sort();
+  const filtered = violations.filter(v =>
+    (filter === 'All' || v.severity === filter) &&
+    (examFilter === 'All' || (v.exam || v.examId) === examFilter) &&
+    (studentFilter === 'All' || (v.rollNumber || v.studentName) === studentFilter)
+  ).sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
   
   const handleDelete = async (id) => { 
     setIsDeleting(true);
@@ -52,6 +60,15 @@ export default function AdminViolations() {
       setIsDeleting(false);
       setDeletingId(null);
     }
+  };
+
+  const reviewIncident = async (violation, status) => {
+    try {
+      const actionTaken = status === 'Confirmed' ? 'Confirmed by administrator' : status === 'Dismissed' ? 'Dismissed by administrator' : 'Escalated for formal review';
+      await updateDoc(doc(db, 'violations', violation.id), { status, actionTaken, reviewedAt: new Date().toISOString() });
+      setViolations(items => items.map(item => item.id === violation.id ? { ...item, status, actionTaken } : item));
+      toast.success(`Incident ${status.toLowerCase()}.`);
+    } catch { toast.error('Could not update incident review status.'); }
   };
 
   const handleSave = async (data) => {
@@ -123,7 +140,7 @@ export default function AdminViolations() {
         })}
       </div>
 
-      <div className="flex gap-2.5">
+      <div className="flex flex-wrap gap-2.5">
         {['All', ...SEVERITIES].map(f => (
           <button key={f} onClick={() => setFilter(f)}
             className="px-4 py-2.5 rounded-xl text-sm font-medium transition-all"
@@ -132,6 +149,12 @@ export default function AdminViolations() {
               : { color: '#71717a', border: '1px solid #27272a' }
             }>{f}</button>
         ))}
+        <select value={examFilter} onChange={event => setExamFilter(event.target.value)} className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-2.5 text-sm text-zinc-200">
+          <option value="All">All exams</option>{exams.map(exam => <option key={exam} value={exam}>{exam}</option>)}
+        </select>
+        <select value={studentFilter} onChange={event => setStudentFilter(event.target.value)} className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-2.5 text-sm text-zinc-200">
+          <option value="All">All students</option>{students.map(student => <option key={student} value={student}>{student}</option>)}
+        </select>
       </div>
 
       <div className="rounded-2xl overflow-hidden" style={{ background: '#121212', border: '1px solid #27272a' }}>
@@ -139,7 +162,7 @@ export default function AdminViolations() {
           <table className="w-full">
             <thead>
               <tr style={{ background: '#0a0a0a' }}>
-                {['Student', 'Roll No.', 'Violation Type', 'Severity', 'Date', 'Status', 'Actions'].map(h => (
+                {['Student', 'Roll No.', 'Exam', 'Violation Type', 'Severity', 'Date', 'Status', 'Actions'].map(h => (
                   <th key={h} className="text-left px-6 py-4 text-sm font-semibold" style={{ color: '#71717a' }}>{h}</th>
                 ))}
               </tr>
@@ -152,6 +175,7 @@ export default function AdminViolations() {
                     style={{ borderBottom: '1px solid #27272a' }}>
                     <td className="px-6 py-5 font-semibold text-white">{v.studentName}</td>
                     <td className="px-6 py-5 text-sm" style={{ color: '#a1a1aa' }}>{v.rollNumber}</td>
+                    <td className="px-6 py-5 text-sm" style={{ color: '#a1a1aa' }}>{v.exam || v.examId || '—'}</td>
                     <td className="px-6 py-5 text-sm" style={{ color: '#a1a1aa' }}>{v.type}{v.evidence?.image && <button type="button" onClick={() => setEvidenceIncident(v)} className="mt-2 block text-sm text-orange-300 underline">View evidence</button>}</td>
                     <td className="px-6 py-5">
                       <span className={`text-sm px-3 py-1.5 rounded-full font-semibold ${getSeverityClass(v.severity)}`}>{v.severity}</span>
@@ -161,7 +185,8 @@ export default function AdminViolations() {
                       <span className={`text-sm px-3 py-1.5 rounded-full font-semibold ${getStatusClass(v.status)}`}>{v.status}</span>
                     </td>
                     <td className="px-6 py-5">
-                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex flex-wrap gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {v.source === 'electron_proctor' && v.status === 'Pending' && <><button type="button" onClick={() => reviewIncident(v, 'Confirmed')} className="rounded-lg bg-emerald-500/10 px-2 py-1 text-xs text-emerald-300">Confirm</button><button type="button" onClick={() => reviewIncident(v, 'Dismissed')} className="rounded-lg bg-zinc-700 px-2 py-1 text-xs text-zinc-200">Dismiss</button><button type="button" onClick={() => reviewIncident(v, 'Escalated')} className="rounded-lg bg-orange-500/10 px-2 py-1 text-xs text-orange-300">Escalate</button></>}
                         <button onClick={() => { setEditViolation(v); setModalOpen(true); }}
                           className="p-2 rounded-xl hover:bg-white/10 transition-colors"
                           style={{ color: '#f97316' }}><Edit2 size={15} /></button>
@@ -176,7 +201,7 @@ export default function AdminViolations() {
                 ))}
               </AnimatePresence>
               {filtered.length === 0 && (
-                <tr><td colSpan={7} className="text-center py-16 text-base" style={{ color: '#71717a' }}>No violations found</td></tr>
+                <tr><td colSpan={8} className="text-center py-16 text-base" style={{ color: '#71717a' }}>No violations found</td></tr>
               )}
             </tbody>
           </table>
@@ -205,7 +230,7 @@ export default function AdminViolations() {
 
 function ViolationModal({ violation, onClose, onSave, isSaving }) {
   const [form, setForm] = useState({
-    rollNumber: violation?.rollNumber || '', type: violation?.type || '',
+    rollNumber: violation?.rollNumber || '', exam: violation?.exam || violation?.examId || '', type: violation?.type || '',
     severity: violation?.severity || 'Low', date: violation?.date || new Date().toISOString().slice(0, 10),
     description: violation?.description || '', status: violation?.status || 'Pending',
     actionTaken: violation?.actionTaken || '',
@@ -234,7 +259,7 @@ function ViolationModal({ violation, onClose, onSave, isSaving }) {
         </div>
         
         <div className="space-y-5">
-          {[['Roll Number', 'rollNumber', 'text', 'e.g. 21P31A0501'], ['Violation Type', 'type', 'text', 'e.g. Cell Phone Violation'], ['Date', 'date', 'date'], ['Action Taken', 'actionTaken', 'text', 'e.g. Warning Issued']].map(([lbl, key, type, placeholder]) => (
+          {[['Roll Number', 'rollNumber', 'text', 'e.g. 21P31A0501'], ['Exam', 'exam', 'text', 'e.g. Data Structures Assessment'], ['Violation Type', 'type', 'text', 'e.g. Cell Phone Violation'], ['Date', 'date', 'date'], ['Action Taken', 'actionTaken', 'text', 'e.g. Warning Issued']].map(([lbl, key, type, placeholder]) => (
             <div key={key}>
               <label className="block text-sm font-semibold mb-2 text-zinc-300">{lbl}</label>
               <input type={type || 'text'} value={form[key]} onChange={set(key)} placeholder={placeholder}

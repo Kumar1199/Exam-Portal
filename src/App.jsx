@@ -13,7 +13,6 @@ import StudentDashboard from './pages/student/Dashboard';
 import UpcomingExamsPage from './pages/student/UpcomingExams';
 import ResultsPage from './pages/student/Results';
 import ProfilePage from './pages/student/Profile';
-import GitHubAnalysisPage from './pages/student/GitHubAnalysis';
 import ViolationsPage from './pages/student/Violations';
 import AchievementsPage from './pages/student/Achievements';
 
@@ -25,7 +24,6 @@ import AdminExams from './pages/admin/Exams';
 import AdminResults from './pages/admin/Results';
 import AdminReports from './pages/admin/Reports';
 import AdminViolations from './pages/admin/Violations';
-import AdminGitHub from './pages/admin/GitHubAnalysis';
 import AdminBadges from './pages/admin/Badges';
 import AdminNotifications from './pages/admin/Notifications';
 import ActivateAccount from './pages/auth/ActivateAccount';
@@ -58,7 +56,6 @@ function AppContent() {
         <Route path="exams" element={<UpcomingExamsPage />} />
         <Route path="results" element={<ResultsPage />} />
         <Route path="profile" element={<ErrorBoundary><ProfilePage /></ErrorBoundary>} />
-        <Route path="github" element={<GitHubAnalysisPage />} />
         <Route path="violations" element={<ViolationsPage />} />
         <Route path="achievements" element={<AchievementsPage />} />
       </Route>
@@ -80,7 +77,6 @@ function AppContent() {
         <Route path="results" element={<AdminResults />} />
         <Route path="reports" element={<AdminReports />} />
         <Route path="violations" element={<AdminViolations />} />
-        <Route path="github" element={<AdminGitHub />} />
         <Route path="badges" element={<AdminBadges />} />
         <Route path="achievements" element={<AdminBadges />} />
         <Route path="notifications" element={<AdminNotifications />} />

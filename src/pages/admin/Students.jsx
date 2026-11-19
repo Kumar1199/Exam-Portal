@@ -8,7 +8,7 @@ import { db } from '../../services/mongoDb.js';
 import { calculatePlacementIndex, exportToCSV, generateInitials, getAvatarColor } from '../../utils/helpers';
 import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
 
-const CSV_TEMPLATE = 'rollNo,name,email,phone,college,branch,department,year,cgpa,btech,backlogs,passoutYear,githubUsername\n21P31A0501,Jane Doe,jane@university.edu,+919876543210,Example College,CSE,Computer Science,3,8.5,85,0,2027,janedoe\n';
+const CSV_TEMPLATE = 'rollNo,name,email,phone,college,branch,department,year,passoutYear\n21P31A0501,Jane Doe,jane@university.edu,+919876543210,Example College,CSE,Computer Science,3,2027\n';
 
 function branchesAsText(value) {
   return Array.isArray(value) ? value.join(', ') : (value || '').toString();
@@ -54,11 +54,7 @@ function csvStudent(headers, values) {
     branch: branch ? branch.split(/[;|]/).map(item => item.trim()).filter(Boolean) : [],
     department: pick('department', 'dept') || branch,
     year: numeric(pick('year', 'currentyear'), 1),
-    cgpa: numeric(pick('cgpa'), 0),
-    btech: numeric(pick('btech', 'btechpercentage', 'percentage'), 0),
-    backlogs: numeric(pick('backlogs', 'backlog'), 0),
     passoutYear: pick('passoutyear', 'graduationyear'),
-    githubUsername: pick('githubusername', 'github'),
   };
 }
 
@@ -66,8 +62,7 @@ function validateStudent(student) {
   if (!student.rollNo || !student.name) return 'Each student needs a roll number and name.';
   if (!student.email) return 'Each student needs an email address for account activation.';
   if (student.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(student.email)) return `Invalid email for ${student.rollNo}.`;
-  if (![student.year, student.cgpa, student.btech, student.backlogs].every(Number.isFinite)) return `Invalid numeric field for ${student.rollNo}.`;
-  if (student.year < 1 || student.year > 8 || student.cgpa < 0 || student.cgpa > 10 || student.btech < 0 || student.btech > 100 || student.backlogs < 0) return `Numeric value out of range for ${student.rollNo}.`;
+  if (!Number.isFinite(student.year) || student.year < 1 || student.year > 8) return `Year must be between 1 and 8 for ${student.rollNo}.`;
   return '';
 }
 
@@ -156,7 +151,7 @@ export default function AdminStudents() {
       const results = resultsSnapshot?.docs.map(item => ({ id: item.id, ...item.data() })) || [];
       setStudents(studentsSnapshot.docs.map(item => {
         const student = { id: item.id, ...item.data() };
-        return { ...student, placementIndex: calculatePlacementIndex(student, results, { githubStats: student.githubStats }) };
+        return { ...student, placementIndex: calculatePlacementIndex(student, results) };
       }));
     } catch (error) {
       console.error('Error fetching students:', error);
@@ -214,8 +209,7 @@ export default function AdminStudents() {
       email: form.email.trim(),
       branch: form.branch.trim() ? [form.branch.trim()] : [],
       department: form.department.trim() || form.branch.trim(),
-      year: Number(form.year), cgpa: Number(form.cgpa || 0),
-      btech: Number(form.btech || 0), backlogs: Number(form.backlogs || 0),
+      year: Number(form.year),
       passoutYear: form.passoutYear ? String(form.passoutYear) : '',
     };
     const selectedCollege = collegeRecords.find(item => item.name === student.college);
@@ -320,15 +314,15 @@ export default function AdminStudents() {
       </div>
 
       <div className="table-wrapper"><div className="table-scroll"><table className="w-full"><thead><tr>
-        {['Student', 'Roll No.', 'College', 'Branch', 'Backlogs', 'B.Tech %', 'PI Score', 'Actions'].map(label => <th key={label} className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">{label}</th>)}
+        {['Student', 'Roll No.', 'College', 'Branch', 'Exam score', 'Actions'].map(label => <th key={label} className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">{label}</th>)}
       </tr></thead><tbody><AnimatePresence>
         {paged.map((student, index) => <motion.tr key={student.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ delay: index * 0.025 }} className="border-b border-zinc-800/50">
           <td className="px-4 py-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold text-white" style={{ background: getAvatarColor(student.name || student.rollNo || 'S') }}>{generateInitials(student.name || student.rollNo || 'S')}</div><div><div className="font-semibold text-zinc-100">{student.name || 'Unknown'}</div><div className="text-xs text-zinc-500">{student.email || student.passoutYear ? `${student.email || ''}${student.email && student.passoutYear ? ' · ' : ''}${student.passoutYear ? `Passout ${student.passoutYear}` : ''}` : 'No email'}</div></div></div></td>
           <td className="px-4 py-4">{student.rollNo || student.id}</td><td className="px-4 py-4">{student.college || '—'}</td><td className="px-4 py-4">{branchesAsText(student.branch) || student.department || '—'}</td>
-          <td className="px-4 py-4"><span style={{ color: Number(student.backlogs) > 0 ? '#ef4444' : '#10b981', fontWeight: 600 }}>{student.backlogs || 0}</span></td><td className="px-4 py-4">{student.btech || 0}%</td><td className="px-4 py-4">{student.placementIndex ?? 0}/100</td>
+          <td className="px-4 py-4"><span className="font-semibold text-emerald-400">{student.placementIndex ?? 0}%</span></td>
           <td className="px-4 py-4"><div className="flex gap-2"><button title="Edit student" onClick={() => { setEditStudent(student); setModalOpen(true); }} className="rounded-lg bg-orange-500/10 p-2 text-orange-300"><Edit2 size={14} /></button><button type="button" title="Send activation email" disabled={sendingActivations || !student.email} onClick={() => resendActivation(student)} className="rounded-lg bg-blue-500/10 p-2 text-blue-300 disabled:opacity-40"><Mail size={14} /></button><button title="Delete student" onClick={() => setDeleteConfirm(student.id)} className="rounded-lg bg-red-500/10 p-2 text-red-400"><Trash2 size={14} /></button></div></td>
         </motion.tr>)}
-      </AnimatePresence>{paged.length === 0 && <tr><td colSpan={8} className="py-14 text-center text-zinc-500">No students found. Add one manually or import a CSV.</td></tr>}</tbody></table></div>
+      </AnimatePresence>{paged.length === 0 && <tr><td colSpan={6} className="py-14 text-center text-zinc-500">No students found. Add one manually or import a CSV.</td></tr>}</tbody></table></div>
         {filtered.length > PER_PAGE && <div className="flex items-center justify-between border-t border-zinc-800 px-4 py-3 text-sm text-zinc-400"><span>Page {page} of {totalPages}</span><div className="flex gap-2"><button onClick={() => setPage(value => Math.max(1, value - 1))} disabled={page === 1} className="btn btn-ghost">Previous</button><button onClick={() => setPage(value => Math.min(totalPages, value + 1))} disabled={page === totalPages} className="btn btn-ghost">Next</button></div></div>}
       </div>
 
@@ -343,8 +337,7 @@ function StudentModal({ student, collegeRecords, onClose, onSave, isSaving }) {
   const [form, setForm] = useState({
     name: student?.name || '', email: student?.email || '', rollNo: student?.rollNo || '', phone: student?.phone || '',
     college: student?.college || '', branch: Array.isArray(student?.branch) ? (student.branch[0] || '') : (student?.branch || ''), department: student?.department || '',
-    year: student?.year || 1, cgpa: student?.cgpa ?? '', btech: student?.btech ?? '', backlogs: student?.backlogs ?? 0,
-    passoutYear: student?.passoutYear || '', githubUsername: student?.githubUsername || '',
+    year: student?.year || 1, passoutYear: student?.passoutYear || '',
   });
   const set = key => event => setForm(previous => ({ ...previous, [key]: event.target.value }));
   const selectedCollege = collegeRecords.find(item => item.name === form.college);
@@ -354,11 +347,12 @@ function StudentModal({ student, collegeRecords, onClose, onSave, isSaving }) {
     ['Department', 'department', 'text'], ['Current year', 'year', 'number'],
     ['CGPA (0–10)', 'cgpa', 'number'], ['B.Tech %', 'btech', 'number'], ['Backlogs', 'backlogs', 'number'], ['Passout year', 'passoutYear', 'number'], ['GitHub username', 'githubUsername', 'text'],
   ];
+  const visibleFields = fields.filter(([, key]) => !['cgpa', 'btech', 'backlogs', 'githubUsername'].includes(key));
   return createPortal(<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
     <motion.div initial={{ scale: 0.96, y: 12 }} animate={{ scale: 1, y: 0 }} onClick={event => event.stopPropagation()} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-950 p-6">
       <div className="mb-6 flex items-center justify-between"><div><h2 className="text-xl font-bold text-white">{student ? 'Edit student' : 'Add student'}</h2><p className="mt-1 text-sm text-zinc-400">Fields marked * are required.</p></div><button onClick={onClose} className="text-zinc-400 hover:text-white"><X size={22} /></button></div>
       <form onSubmit={event => { event.preventDefault(); onSave(form); }}><div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {fields.map(([label, key, type]) => <label key={key} className="text-sm font-medium text-zinc-300">{label}<input required={key === 'name' || key === 'rollNo' || key === 'email'} min={type === 'number' && key === 'year' ? 1 : undefined} max={key === 'year' ? 8 : key === 'cgpa' ? 10 : key === 'btech' ? 100 : undefined} step={key === 'cgpa' ? '0.01' : 'any'} type={type} value={form[key]} onChange={set(key)} disabled={student && key === 'rollNo'} className="mt-2 w-full rounded-xl border border-zinc-800 bg-black px-3 py-3 text-white outline-none focus:border-orange-500" /></label>)}
+        {visibleFields.map(([label, key, type]) => <label key={key} className="text-sm font-medium text-zinc-300">{label}<input required={key === 'name' || key === 'rollNo' || key === 'email'} min={type === 'number' && key === 'year' ? 1 : undefined} max={key === 'year' ? 8 : undefined} step="any" type={type} value={form[key]} onChange={set(key)} disabled={student && key === 'rollNo'} className="mt-2 w-full rounded-xl border border-zinc-800 bg-black px-3 py-3 text-white outline-none focus:border-orange-500" /></label>)}
         <label className="text-sm font-medium text-zinc-300">College *<select required value={form.college} onChange={event => setForm(previous => ({ ...previous, college: event.target.value, branch: '' }))} className="mt-2 w-full rounded-xl border border-zinc-800 bg-black px-3 py-3 text-white outline-none focus:border-orange-500"><option value="">Select a college</option>{collegeRecords.map(item => <option key={item.id} value={item.name}>{item.name}</option>)}{form.college && !collegeRecords.some(item => item.name === form.college) && <option value={form.college}>{form.college} (existing record)</option>}</select></label>
         <label className="text-sm font-medium text-zinc-300">Branch *<select required value={form.branch} disabled={!form.college} onChange={set('branch')} className="mt-2 w-full rounded-xl border border-zinc-800 bg-black px-3 py-3 text-white outline-none focus:border-orange-500 disabled:opacity-50"><option value="">{form.college ? 'Select a branch' : 'Select a college first'}</option>{branchOptions.map(branch => <option key={branch} value={branch}>{branch}</option>)}{form.branch && !branchOptions.includes(form.branch) && <option value={form.branch}>{form.branch} (existing record)</option>}</select></label>
       </div><div className="mt-6 flex justify-end gap-3 border-t border-zinc-800 pt-5"><button type="button" onClick={onClose} disabled={isSaving} className="btn btn-ghost">Cancel</button><button type="submit" disabled={isSaving} className="btn btn-primary">{isSaving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}{isSaving ? 'Saving…' : student ? 'Save changes' : 'Add student'}</button></div></form>

@@ -8,7 +8,7 @@ import { collection, getDocs } from '../../services/mongoDb.js';
 import { db } from '../../services/mongoDb.js';
 
 export default function TopNav({ title = 'Dashboard' }) {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const { toggleSidebar } = useApp();
   const [notifOpen, setNotifOpen] = useState(false);
   const [searchVal, setSearchVal] = useState('');
@@ -23,15 +23,18 @@ export default function TopNav({ title = 'Dashboard' }) {
     const fetchNotifs = async () => {
       try {
         const snap = await getDocs(collection(db, 'notifications'));
-        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        list.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .filter(notification => role === 'admin' ? notification.recipientRole !== 'student' : notification.recipientRole !== 'admin');
+        list.sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
         setNotifications(list.slice(0, 5)); // Keep latest 5
       } catch (err) {
         console.error(err);
       }
     };
     fetchNotifs();
-  }, []);
+    const timer = window.setInterval(fetchNotifs, 30000);
+    return () => window.clearInterval(timer);
+  }, [role]);
 
   const unread     = notifications.filter(n => !n.read).length;
   const typeColor  = t => ({ info: '#f97316', success: '#10b981', achievement: '#f59e0b', warning: '#f97316', reminder: '#06b6d4' }[t] || '#f97316');
@@ -57,7 +60,7 @@ export default function TopNav({ title = 'Dashboard' }) {
       {/* Page breadcrumb */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
         <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#fafafa' }}>{title}</span>
-        <span style={{ fontSize: '0.6875rem', color: '#475569' }}>STUDENT 360</span>
+        <span style={{ fontSize: '0.6875rem', fontWeight: 800 }}><span style={{ color: '#4DA3E6' }}>GU</span><span style={{ color: '#E16B1F' }}> Drishti</span></span>
       </div>
 
       {/* Search bar */}
@@ -143,7 +146,7 @@ export default function TopNav({ title = 'Dashboard' }) {
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#fafafa' }}>{n.title}</p>
                           <p style={{ fontSize: '0.75rem', color: '#71717a', marginTop: 2, lineHeight: 1.4 }}>{n.message}</p>
-                          <p style={{ fontSize: '0.6875rem', color: '#334155', marginTop: 4 }}>{formatDate(n.date)}</p>
+                          <p style={{ fontSize: '0.6875rem', color: '#334155', marginTop: 4 }}>{formatDate(n.date || n.createdAt)}</p>
                         </div>
                       </div>
                     ))}

@@ -158,34 +158,19 @@ const normalizeCodingScore = (codingProfiles = {}) => {
 };
 
 export function calculatePlacementIndex(student = {}, results = [], options = {}) {
-  const academicScore = normalizeAcademicScore(student, results);
-  const githubScore = normalizeGitHubScore(options.githubStats || student.githubStats);
-  const codingScore = normalizeCodingScore(options.codingProfiles);
-
-  const components = [
-    { score: academicScore, weight: 0.25 },
-    { score: githubScore, weight: 0.2 },
-    { score: codingScore, weight: 0.3 },
-  ].filter((component) => typeof component.score === 'number');
-
   const studentRollNo = getRollNo(student);
   const studentResults = Array.isArray(results)
     ? results.filter((result) => getRollNo(result) === studentRollNo)
     : [];
-  const examScore = studentResults.length
-    ? studentResults.reduce((sum, result) => sum + (Number(result.percentage) || 0), 0) / studentResults.length
-    : null;
-
-  if (typeof examScore === 'number') {
-    components.push({ score: clampScore(examScore), weight: 0.25 });
-  }
-
-  if (components.length === 0) return 0;
-
-  const totalWeight = components.reduce((sum, component) => sum + component.weight, 0);
-  const weightedScore = components.reduce((sum, component) => sum + (component.score * component.weight), 0) / totalWeight;
-
-  return clampScore(weightedScore);
+  if (!studentResults.length) return 0;
+  const scores = studentResults.map(result => {
+    const percentage = Number(result.percentage);
+    if (Number.isFinite(percentage)) return percentage;
+    const score = Number(result.score ?? result.marks);
+    const total = Number(result.totalMarks ?? result.total);
+    return Number.isFinite(score) && total > 0 ? (score / total) * 100 : 0;
+  });
+  return clampScore(scores.reduce((sum, score) => sum + score, 0) / scores.length);
 }
 
 export function getPercentage(marks, total) {

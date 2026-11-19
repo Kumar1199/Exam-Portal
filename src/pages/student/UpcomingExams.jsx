@@ -54,6 +54,8 @@ export default function UpcomingExamsPage() {
 
   useEffect(() => {
     fetchExams();
+    const timer = window.setInterval(fetchExams, 30000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const copyExamCode = async exam => {

@@ -13,6 +13,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import BrandLogo from '../../components/shared/BrandLogo';
 
 export default function LoginPage() {
   const [role, setRole] = useState('student');
@@ -20,6 +21,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
 
   const navigate = useNavigate();
   const { login, loginWithMicrosoft } = useAuth();
@@ -35,9 +37,14 @@ export default function LoginPage() {
   };
 
   const handleLogin = async (e) => {
-    if (e) e.preventDefault();
+    e?.preventDefault();
+    setLoginError('');
     setLoading(true);
-    
+    if (!email.trim() || !password) {
+      setLoginError('Enter your email and password to continue.');
+      setLoading(false);
+      return;
+    }
     const result = await login(email, password, role);
     
     if (result.success) {
@@ -45,7 +52,7 @@ export default function LoginPage() {
       toast.success(`${displayRole.charAt(0).toUpperCase() + displayRole.slice(1)} Login Successful`);
       navigate(`/${displayRole}/dashboard`);
     } else {
-      toast.error(result.error);
+      setLoginError(result.error || 'Sign-in failed. Check your credentials and selected role.');
     }
     setLoading(false);
   };
@@ -106,24 +113,8 @@ export default function LoginPage() {
         >
           {/* Logo */}
           <motion.div variants={itemVariants} className="flex flex-col items-center mb-10">
-            <div
-              className="w-20 h-20 rounded-3xl flex items-center justify-center mb-6 relative group"
-              style={{
-                background: 'linear-gradient(135deg, #f97316, #f59e0b)',
-                boxShadow: '0 20px 40px rgba(249,115,22,0.3)',
-              }}
-            >
-              <GraduationCap size={40} color="white" />
-              <motion.div 
-                animate={{ rotate: 360 }}
-                transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
-                className="absolute inset-[-4px] rounded-[26px] border border-orange-500/20 pointer-events-none" 
-              />
-            </div>
-
-            <h1 className="text-4xl font-black text-white tracking-tighter flex items-center gap-2">
-              STUDENT <span className="text-orange-500">360°</span>
-            </h1>
+            <BrandLogo light className="mb-5" />
+            <h1 className="text-4xl font-black tracking-tighter"><span className="text-[#4DA3E6]">GU</span><span className="text-[#E16B1F]"> Drishti</span></h1>
 
             <p className="text-zinc-400 text-sm mt-3 font-medium flex items-center gap-2">
               <Sparkles size={14} className="text-orange-400" />
@@ -147,6 +138,7 @@ export default function LoginPage() {
                   setRole(item);
                   setEmail('');
                   setPassword('');
+                  setLoginError('');
                 }}
                 className={`flex-1 py-3.5 rounded-xl text-sm font-bold transition-all duration-500 relative overflow-hidden ${
                   role === item ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'
@@ -172,6 +164,7 @@ export default function LoginPage() {
           </motion.div>
 
           <p className="mb-5 text-center text-sm text-zinc-400">New student? Open the activation link sent to your email to set your password. Ask your administrator to resend it if needed.</p>
+          {loginError && <div role="alert" className="mb-5 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-center text-sm font-medium text-red-300">{loginError}</div>}
           {/* Form Content */}
           <motion.div variants={itemVariants} className="space-y-5">
             <AnimatePresence mode="wait">

@@ -4,7 +4,10 @@ import {gradeBank} from './codingRunner.mjs';
 import {executeCode, runnerLanguages, executionPassed} from './codingRunner.mjs';
 export function studentBank(bank) {
   if (bank.type === 'MCQ') return {source:'csv',type:'MCQ',revision:bank.revision,questions:bank.questions.map(({correct,...q})=>q)};
-  if (bank.type === 'AI Interview') return {source:'csv',type:'AI Interview',revision:bank.revision,questions:bank.questions.map(({expectedKeyPoints,...q})=>q)};
+  if (bank.type === 'Mixed') {
+    const problems=bank.problems.map(({testCases,...p})=>({...p,examples:testCases.filter(t=>!t.hidden).map(t=>({input:t.input,output:t.expectedOutput})),hiddenTestCount:testCases.filter(t=>t.hidden).length}));
+    return {source:'csv',type:'MIXED',revision:bank.revision,questions:bank.questions.map(({correct,...q})=>q),problems,problem:problems[0],languages:runnerLanguages()};
+  }
   const problems = bank.problems.map(({testCases,...p}) => ({...p,examples:testCases.filter(t=>!t.hidden).map(t=>({input:t.input,output:t.expectedOutput})),hiddenTestCount:testCases.filter(t=>t.hidden).length}));
   return {source:'csv',type:'CODING',revision:bank.revision,problems,problem:problems[0],languages:runnerLanguages()};
 }
@@ -57,10 +60,16 @@ export async function questionBankApi(req,res,db,user,action,idValue) {
   if (!admin || req.method!=='POST') return res.status(403).json({error:'Administrator access required.'});
   if (await db.collection('exam_submissions').findOne({examId})) return res.status(409).json({error:'Questions are locked after the first submission. Create a new exam to change them.'});
   let bank;
-  try { bank=parseQuestionCsv(req.body?.csv,exam.examType || 'MCQ'); } catch(error) { return res.status(400).json({error:error.message}); }
+  try {
+    if (exam.examType === 'Mixed') {
+      const mcq=parseQuestionCsv(req.body?.mcqCsv,'MCQ');
+      const coding=parseQuestionCsv(req.body?.codingCsv,'Coding');
+      bank={type:'Mixed',questions:mcq.questions,problems:coding.problems,totalMarks:mcq.totalMarks+coding.totalMarks};
+    } else bank=parseQuestionCsv(req.body?.csv,exam.examType || 'MCQ');
+  } catch(error) { return res.status(400).json({error:error.message}); }
   bank={...bank,source:'csv',revision:Date.now().toString(),updatedAt:new Date()};
   await db.collection('question_banks').replaceOne({_id:examId},{...bank,_id:examId},{upsert:true});
   await db.collection('generated_questions').deleteOne({_id:examId});
-  await db.collection('exams').updateOne({_id:idValue(examId)},{$set:{questionSource:'csv',questionCount:(bank.questions||bank.problems).length,totalMarks:bank.totalMarks}});
+  await db.collection('exams').updateOne({_id:idValue(examId)},{$set:{questionSource:'csv',questionCount:(bank.questions?.length||0)+(bank.problems?.length||0),totalMarks:bank.totalMarks}});
   return res.status(200).json({bank});
 }

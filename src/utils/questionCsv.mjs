@@ -19,7 +19,6 @@ export function parseCsv(text) {
 const fields = {
   MCQ: ['question_id','question','option_a','option_b','option_c','option_d','correct_option','marks'],
   Coding: ['problem_id','title','description','input_format','output_format','constraints','marks','test_input','expected_output','visibility'],
-  'AI Interview': ['question_id','question','expected_key_points','follow_up','marks'],
 };
 const multiline = value => value.replace(/\\n/g, '\n').replace(/\r\n/g, '\n');
 export function parseQuestionCsv(text, type) {
@@ -61,15 +60,9 @@ export function parseQuestionCsv(text, type) {
       if (p.testCases.some(t => t.input === tc.input)) fail(`Duplicate test input for ${id}.`);
       p.testCases.push(tc);
       if (p.testCases.length > 50) fail('Maximum 50 test cases per problem.');
-    } else {
-      if (questions.some(q => q.id === id)) fail(`Duplicate question ID ${id}.`);
-      if (!r.question) fail('A question is required.');
-      const expectedKeyPoints = multiline(r.expected_key_points).split(/[;|]/).map(point => point.trim()).filter(Boolean);
-      if (!expectedKeyPoints.length) fail('expected_key_points needs at least one point, separated by semicolons.');
-      questions.push({id, question:multiline(r.question), expectedKeyPoints, followUp:multiline(r.follow_up), marks});
     }
   }
-  if ((type === 'MCQ' || type === 'AI Interview') && questions.length > 200) throw new Error('Maximum 200 questions per exam.');
+  if (type === 'MCQ' && questions.length > 200) throw new Error('Maximum 200 questions per exam.');
   if (type === 'Coding') {
     if (problems.size > 10) throw new Error('Maximum 10 coding problems per exam.');
     for (const p of problems.values()) {
@@ -83,4 +76,3 @@ export function parseQuestionCsv(text, type) {
 }
 export const MCQ_SAMPLE = 'question_id,question,option_a,option_b,option_c,option_d,correct_option,marks\nQ1,What is 2 + 2?,3,4,5,6,B,2\nQ2,"Which structure uses first in, first out?",Stack,Queue,Tree,Graph,B,3\n';
 export const CODING_SAMPLE = 'problem_id,title,description,input_format,output_format,constraints,marks,test_input,expected_output,visibility\nP1,Sum of two integers,Read two integers and print their sum.,Two space-separated integers a and b.,Print a single integer.,-1000000 <= a and b <= 1000000,10,2 3,5,sample\nP1,,,,,,10,-4 4,0,hidden\nP1,,,,,,10,1000000 1000000,2000000,hidden\nP2,Sum an array,Read n and then n integers. Print their sum.,First line n. Second line n integers.,Print the sum.,1 <= n <= 1000,10,3\\n1 2 3,6,sample\nP2,,,,,,10,1\\n-7,-7,hidden\nP2,,,,,,10,4\\n0 -2 2 10,10,hidden\n';
-export const INTERVIEW_SAMPLE = 'question_id,question,expected_key_points,follow_up,marks\nI1,Explain the difference between a process and a thread.,separate memory;shared memory;context switching,When would you choose a process?,10\nI2,How would you debug a slow API?,measure latency;inspect logs;profile database,Which metric would you inspect first?,10\n';

@@ -21,7 +21,7 @@ export default function AdminNotifications() {
     const fetchNotifs = async () => {
       try {
         const snap = await getDocs(collection(db, 'notifications'));
-        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(notification => notification.recipientRole !== 'student');
         // Sort by date or id descending roughly
         list.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
         setNotifs(list);
@@ -32,6 +32,8 @@ export default function AdminNotifications() {
       }
     };
     fetchNotifs();
+    const timer = window.setInterval(fetchNotifs, 30000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const handleSend = async () => {
@@ -39,7 +41,7 @@ export default function AdminNotifications() {
     setIsSaving(true);
     try {
       const newId = `notif_${Date.now()}`;
-      const payload = { ...form, date: new Date().toISOString().slice(0, 10), read: false };
+      const payload = { ...form, recipientRole: 'all', date: new Date().toISOString(), read: false };
       await setDoc(doc(db, 'notifications', newId), payload);
       setNotifs(p => [{ id: newId, ...payload }, ...p]);
       toast.success('Notification sent to all students!');
@@ -97,7 +99,7 @@ export default function AdminNotifications() {
                     {!n.read && <span className="w-2 h-2 rounded-full" style={{ background: color }} />}
                   </div>
                   <p className="text-sm" style={{ color: '#a1a1aa' }}>{n.message}</p>
-                  <p className="text-xs mt-1" style={{ color: '#475569' }}>{formatDate(n.date)}</p>
+                  <p className="text-xs mt-1" style={{ color: '#475569' }}>{formatDate(n.date || n.createdAt)}</p>
                 </div>
               </motion.div>
             );

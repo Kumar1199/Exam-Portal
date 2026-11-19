@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { BookOpen, Calendar, Trophy, TrendingUp, Star, Target, Award, ChevronRight, Zap, Code } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, Radar } from 'recharts';
 import StatCard from '../../components/shared/StatCard';
 import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
 import { ErrorState } from '../../components/shared/ErrorState';
@@ -18,14 +17,6 @@ const ChartTip = ({ active, payload, label }) =>
     </div>
   ) : null;
 
-const radarData = [
-  { subject: 'DSA', score: 88 }, { subject: 'DBMS', score: 78 },
-  { subject: 'OS', score: 88 },  { subject: 'CN', score: 87 },
-  { subject: 'ML', score: 84 },  { subject: 'WT', score: 91 },
-];
-
-
-
 export default function StudentDashboard() {
   const { user } = useAuth();
   const rollNo = user?.rollNo || (user?.email ? user.email.split('@')[0].toUpperCase() : '');
@@ -39,11 +30,6 @@ export default function StudentDashboard() {
   const [retryCount, setRetryCount] = useState(0);
 
   const studentBadges  = [];
-  const performanceData = [
-    { year: '2021', cgpa: 7.8 }, { year: '2022', cgpa: 8.1 },
-    { year: '2023', cgpa: 8.4 }, { year: '2024', cgpa: 8.2 },
-    { year: '2025', cgpa: 8.6 }, { year: '2026', cgpa: 8.8 }
-  ];
 
   useEffect(() => {
     if (!rollNo) return;
@@ -54,11 +40,8 @@ export default function StudentDashboard() {
         const headers = { 'Content-Type': 'application/json' };
 
         const safeFetch = async (url) => {
-          const cacheKey = `${rollNo}_${url}`;
-          const cached = sessionStorage.getItem(cacheKey);
-          if (cached) {
-            try { return JSON.parse(cached); } catch (e) {}
-          }
+          // External profile services are intentionally disabled. Dashboard data is portal-database only.
+          return null;
           try {
             const res = await fetch(url, { method: 'POST', headers, body, timeout: 10000 });
             if (!res.ok) {
@@ -66,7 +49,6 @@ export default function StudentDashboard() {
               return null;
             }
             const data = await res.json();
-            sessionStorage.setItem(cacheKey, JSON.stringify(data));
             return data;
           } catch (e) {
             console.warn(`⚠️ Fetch failed for ${url}:`, e.message);
@@ -75,11 +57,8 @@ export default function StudentDashboard() {
         };
 
         const fetchStudentDetails = async () => {
-          const cacheKey = `${rollNo}_student_details`;
-          const cached = sessionStorage.getItem(cacheKey);
-          if (cached) {
-            try { return JSON.parse(cached); } catch (e) {}
-          }
+          const docSnap = await getDoc(doc(db, 'students', rollNo));
+          return docSnap.exists() ? docSnap.data() : null;
           try {
             const idRes = await fetch('/api/get-student-id-by-rollno', {
               method: 'POST',
@@ -107,7 +86,6 @@ export default function StudentDashboard() {
               return null;
             }
             const data = await detailsRes.json();
-            sessionStorage.setItem(cacheKey, JSON.stringify(data));
             return data;
           } catch (e) {
             console.warn(`⚠️ fetchStudentDetails failed:`, e.message);
@@ -132,34 +110,11 @@ export default function StudentDashboard() {
             const docSnap = await getDoc(docRef);
             if (docSnap.exists()) {
               finalStudentData = docSnap.data();
-            } else {
-              // Create a placeholder if not found in Firestore either
-              finalStudentData = {
-                roll_no: rollNo,
-                first_name: user?.name?.split(' ')[0] || 'Student',
-                branch: ['Engineering'],
-                passout_year: 2027,
-                btech: 8.5
-              };
             }
           } catch (e) { console.error("Firestore error:", e); }
         }
 
-        // Generate deterministic seed based on roll number for consistency in mocks
-        const seed = rollNo.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-
-        // Unified Stats (API -> Mock based on roll number)
-        let finalStats = statsJson;
-        if (!finalStats) {
-          finalStats = {
-            total: 120 + (seed % 300),
-            easy: 60 + (seed % 100),
-            medium: 40 + (seed % 150),
-            hard: 20 + (seed % 50),
-            rank: 1200 + (seed % 5000),
-            score: 1500 + (seed % 2000)
-          };
-        }
+        const finalStats = statsJson || {};
 
         // Fetch upcoming exams and results from Firestore (Production source)
         const examsSnap = await getDocs(collection(db, 'exams'));
@@ -176,12 +131,7 @@ export default function StudentDashboard() {
           .map(d => d.data());
         
         setMyResults(userResults);
-        setCodingProfiles({ 
-          leetcode: lc || { lc_total_progarms: finalStats.total * 0.4, lc_easy: finalStats.easy * 0.4, lc_rank: finalStats.rank }, 
-          gfg: gfg || { gfg_total_problems: finalStats.total * 0.3, gfg_score: finalStats.score * 0.3 }, 
-          codechef: cc || { total_problems: finalStats.total * 0.2, rating: 1400 + (seed % 400) }, 
-          hackerrank: hr || { hr_badges: 3, hr_total_stars: 12 } 
-        });
+        setCodingProfiles({ leetcode: lc, gfg, codechef: cc, hackerrank: hr });
 
         setStudentData(finalStudentData);
         setDashboardStats(finalStats);
@@ -217,10 +167,7 @@ export default function StudentDashboard() {
   const studentDept = studentData?.branch?.[0] || 'No branch assigned';
   const studentYear = studentData?.passout_year || '';
   const studentRoll = studentData?.roll_no || rollNo;
-  const placementIndex = calculatePlacementIndex(studentData, myResults, {
-    codingProfiles,
-    githubStats: studentData?.githubStats,
-  });
+  const placementIndex = calculatePlacementIndex(studentData, myResults);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -262,40 +209,6 @@ export default function StudentDashboard() {
         <StatCard title="PI Score"        value={`${placementIndex}/100`} subtitle="Placement Index" icon={Award} color="#10b981" trend={placementIndex >= 80 ? 'up' : placementIndex >= 65 ? 'none' : 'down'} trendValue={placementIndex >= 80 ? 'Excellent' : placementIndex >= 65 ? 'Good' : 'Needs work'} delay={0.12} />
         <StatCard title="Active Courses"  value={studentData?.current_courses?.length || 0} subtitle="Currently Enrolled" icon={BookOpen} color="#f59e0b" trend="none" trendValue="" delay={0.16} />
         <StatCard title="Upcoming Exams"  value={upcomingExams.length} subtitle="Next: May 20" icon={Calendar} color="#10b981" trend="up" trendValue="3 due" delay={0.24} />
-      </div>
-
-      {/* Charts row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.25rem' }}>
-
-        {/* CGPA Trend */}
-        <div className="chart-card">
-          <div className="chart-header">
-            <span className="chart-title">Yearly CGPA Trend</span>
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={performanceData} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-              <XAxis dataKey="year" stroke="#334155" tick={{ fontSize: 11, fill: '#71717a' }} />
-              <YAxis domain={[7.5, 10]} stroke="#334155" tick={{ fontSize: 11, fill: '#71717a' }} />
-              <Tooltip content={<ChartTip />} />
-              <Line type="monotone" dataKey="cgpa" name="CGPA" stroke="#f97316" strokeWidth={2} dot={{ fill: '#f97316', r: 3 }} activeDot={{ r: 5 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Skill Radar */}
-        <div className="chart-card">
-          <div className="chart-header">
-            <span className="chart-title">Skill Overview</span>
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <RadarChart data={radarData} margin={{ top: 0, right: 16, bottom: 0, left: 16 }}>
-              <PolarGrid stroke="#27272a" />
-              <PolarAngleAxis dataKey="subject" tick={{ fill: '#71717a', fontSize: 10 }} />
-              <Radar name="Score" dataKey="score" stroke="#f97316" fill="#f97316" fillOpacity={0.18} strokeWidth={1.5} />
-            </RadarChart>
-          </ResponsiveContainer>
-        </div>
       </div>
 
       {/* Bottom row */}
