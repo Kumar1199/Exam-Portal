@@ -3,8 +3,12 @@ import { handleCodingProfiles } from './codingProfiles.mjs';
 import https from 'https';
 
 export default async function handler(req, res) {
-  // Allow cross-origin requests
-    res.setHeader('Access-Control-Allow-Origin', '*');
+  // Production must name its trusted portal origins. Local development remains
+  // usable without weakening a deployed environment.
+  const allowedOrigins = String(process.env.ALLOWED_ORIGINS || 'http://127.0.0.1:5173,http://localhost:5173').split(',').map(value => value.trim()).filter(Boolean);
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, X-Bootstrap-Token');
 

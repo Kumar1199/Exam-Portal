@@ -22,7 +22,7 @@ function verify(token) {
 }
 
 let clientPromise, checkinIndexPromise, coreIndexPromise, lifecyclePromise, lifecycleLastRun = 0;
-const collections = new Set(['users', 'students', 'exams', 'examInvites', 'results', 'violations', 'awardedBadges', 'notifications', 'colleges', 'generated_questions', 'exam_submissions']);
+const collections = new Set(['users', 'students', 'exams', 'examInvites', 'results', 'violations', 'awardedBadges', 'notifications', 'colleges', 'generated_questions', 'exam_submissions', 'exam_sessions', 'proctor_events']);
 const idValue = id => ObjectId.isValid(id) && String(new ObjectId(id)) === String(id) ? new ObjectId(id) : id;
 
 function safePassword(password, salt, stored) { if (!salt || !stored) return false; const actual=crypto.scryptSync(password, salt, 64); const expected=Buffer.from(stored,'hex'); return actual.length===expected.length && crypto.timingSafeEqual(actual,expected); }
@@ -44,7 +44,17 @@ export async function getDb() {
     db.collection('results').createIndex({ examId: 1, rollNo: 1 }),
     db.collection('results').createIndex({ rollNo: 1, date: -1 }),
     db.collection('violations').createIndex({ examId: 1, date: -1 }),
-  ]).catch(() => null);
+    // A session belongs to exactly one student and one exam.  This unique key is
+    // the cross-instance duplicate-session lock; no Vercel memory is trusted.
+    db.collection('exam_sessions').createIndex({ examId: 1, studentId: 1 }, { unique: true }),
+    db.collection('exam_sessions').createIndex({ state: 1, lastHeartbeatAt: -1 }),
+    db.collection('exam_sessions').createIndex({ examId: 1, updatedAt: -1 }),
+    db.collection('proctor_events').createIndex({ eventId: 1 }, { unique: true }),
+    db.collection('proctor_events').createIndex({ sessionId: 1, receivedAt: -1 }),
+    db.collection('proctor_events').createIndex({ examId: 1, severity: 1, receivedAt: -1 }),
+    db.collection('proctor_events').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
+    db.collection('evidence_audit').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
+  ]).catch(error => { coreIndexPromise = null; throw error; });
   await checkinIndexPromise;
   await coreIndexPromise;
   return db;
@@ -268,6 +278,23 @@ export async function handleMongo(req, res) {
     }
     if (name === 'exam_submissions') {
       if (!data?.studentId || !data?.examId) return res.status(400).json({ error: 'Student and exam IDs are required.' });
+      // Time is never accepted from the renderer.  It is calculated from the
+      // persisted exam record and is therefore identical across all clients.
+      const scheduledExam = await db.collection('exams').findOne({ _id: idValue(data.examId) });
+      const scheduledEnd = scheduledExam && scheduledStartInIndia(scheduledExam) + examDurationMs(scheduledExam);
+      const graceMinutes = Math.max(0, Math.min(15, Number(scheduledExam?.submissionGraceMinutes || 0)));
+      if (!scheduledExam || !Number.isFinite(scheduledEnd)) return res.status(409).json({ error: 'The exam schedule is unavailable.' });
+      if (Date.now() > scheduledEnd + graceMinutes * 60 * 1000) return res.status(410).json({ error: 'The server-calculated submission deadline has passed.' });
+      const claimedSessionId = data.sessionId ? String(data.sessionId) : null;
+      if (claimedSessionId) {
+        const owned = await db.collection('exam_sessions').findOne({ _id: claimedSessionId, examId: String(data.examId), studentId: String(data.studentId).toUpperCase() });
+        if (!owned) return res.status(403).json({ error: 'The session does not belong to this authenticated student.' });
+        if (owned.finalSubmissionStatus === 'submitted') {
+          const prior = await collection.findOne({ studentId: data.studentId, examId: data.examId });
+          if (prior) return res.status(201).json({ id: String(prior._id), duplicate: true, score: prior.score, passedCases: prior.passedCases, totalCases: prior.totalCases, allPassed: prior.allPassed, evaluationPending: prior.evaluationPending, results: prior.results });
+          return res.status(409).json({ error: 'This session has already been finalized.' });
+        }
+      }
       const existing = await collection.findOne({ studentId: data.studentId, examId: data.examId });
       const bank = await db.collection('question_banks').findOne({_id:String(data.examId)});
       if (bank && !existing && data.questionRevision !== bank.revision) return res.status(409).json({error:'The question bank changed. Restart the app to load the current questions before submitting.'});
@@ -289,6 +316,9 @@ export async function handleMongo(req, res) {
       });
       await collection.updateOne({ _id: submissionId }, { $setOnInsert: { ...data, ...(report ? { proctorReport: report } : {}), createdAt: new Date(), updatedAt: new Date() } }, { upsert: true });
       const stored = await collection.findOne({ _id: submissionId });
+      // The deterministic submission key makes simultaneous manual/automatic
+      // submissions idempotent. Finalization happens only after persistence.
+      if (claimedSessionId) await db.collection('exam_sessions').updateOne({ _id: claimedSessionId, examId: String(data.examId), studentId: String(data.studentId).toUpperCase() }, { $set: { state: 'finalized', finalSubmissionStatus: 'submitted', finalSubmissionReason: String(data.submissionReason || 'manual').slice(0, 80), finalizedAt: new Date(), updatedAt: new Date() } });
       const events = Array.isArray(stored?.proctorReport?.events) ? stored.proctorReport.events.filter(event => event.type === 'confirmed_incident').slice(0, 3) : [];
       const exam = await db.collection('exams').findOne({ _id: idValue(data.examId) });
       for (const event of events) {
@@ -406,9 +436,155 @@ async function ensureExamLifecycle(db, force = false) {
   return lifecyclePromise;
 }
 
+const HEARTBEAT_TIMEOUT_MS = Math.max(15_000, Number(process.env.EXAM_HEARTBEAT_TIMEOUT_MS || 90_000));
+const HEARTBEAT_MIN_INTERVAL_MS = Math.max(1_000, Number(process.env.EXAM_HEARTBEAT_MIN_INTERVAL_MS || 5_000));
+const HEARTBEAT_REQUEST_MIN_INTERVAL_MS = Math.max(500, Number(process.env.EXAM_HEARTBEAT_REQUEST_MIN_INTERVAL_MS || 1_000));
+const PROCTOR_EVENT_RETENTION_DAYS = Math.max(1, Math.min(3650, Number(process.env.PROCTOR_EVENT_RETENTION_DAYS || 90)));
+const SESSION_EVENT_TYPES = new Set(['PHONE_DETECTED','MULTIPLE_FACES','FACE_MISSING','FACE_OCCLUDED','HEAD_ROTATION','GAZE_DEVIATION','CAMERA_DISCONNECTED','CAMERA_FROZEN','CAMERA_BLACK_FRAME','CAMERA_STALE_FRAME','CAMERA_LOW_QUALITY','IDENTITY_MISMATCH','APPLICATION_TAMPERING','FULLSCREEN_EXIT','WINDOW_FOCUS_LOST','WINDOW_MINIMIZED','WINDOW_CLOSE_ATTEMPT','DEVTOOLS_ATTEMPT','NAVIGATION_BLOCKED','RENDERER_CRASH','CLIPBOARD_ATTEMPT','PROHIBITED_SHORTCUT','CODE_LARGE_INSERT','CODE_RAPID_CHANGE','CODE_RUN','NETWORK_OFFLINE','NETWORK_RESTORED']);
+const EVENT_POLICY = Object.freeze({
+  PHONE_DETECTED: ['camera', 'high', 'warning'], MULTIPLE_FACES: ['camera', 'high', 'warning'], FACE_MISSING: ['camera', 'medium', 'warning'],
+  CAMERA_DISCONNECTED: ['camera', 'high', 'warning'], CAMERA_FROZEN: ['camera', 'medium', 'advisory'], CAMERA_LOW_QUALITY: ['camera', 'low', 'advisory'],
+  CAMERA_BLACK_FRAME: ['camera', 'medium', 'warning'], CAMERA_STALE_FRAME: ['camera', 'medium', 'warning'], FACE_OCCLUDED: ['camera', 'medium', 'advisory'],
+  FULLSCREEN_EXIT: ['integrity', 'high', 'warning'], WINDOW_FOCUS_LOST: ['integrity', 'medium', 'warning'], WINDOW_MINIMIZED: ['integrity', 'high', 'warning'], WINDOW_CLOSE_ATTEMPT: ['integrity', 'high', 'warning'],
+  DEVTOOLS_ATTEMPT: ['integrity', 'high', 'warning'], NAVIGATION_BLOCKED: ['integrity', 'high', 'warning'], RENDERER_CRASH: ['integrity', 'high', 'advisory'],
+  CLIPBOARD_ATTEMPT: ['keyboard', 'medium', 'warning'], PROHIBITED_SHORTCUT: ['keyboard', 'medium', 'warning'], CODE_LARGE_INSERT: ['coding', 'medium', 'advisory'], CODE_RAPID_CHANGE: ['coding', 'low', 'advisory'], CODE_RUN: ['coding', 'info', 'none'],
+  HEAD_ROTATION: ['camera', 'low', 'advisory'], GAZE_DEVIATION: ['camera', 'low', 'advisory'], IDENTITY_MISMATCH: ['camera', 'high', 'warning'], APPLICATION_TAMPERING: ['integrity', 'high', 'warning'], NETWORK_OFFLINE: ['network', 'info', 'none'], NETWORK_RESTORED: ['network', 'info', 'none']
+});
+function deviceId(value) { const text = String(value || ''); return /^[A-Za-z0-9._:-]{16,160}$/.test(text) ? text : null; }
+function sessionState(session, now = Date.now()) {
+  if (!session) return 'missing';
+  if (session.finalSubmissionStatus === 'submitted') return 'submitted';
+  if (session.scheduledEndAt && new Date(session.scheduledEndAt).getTime() <= now) return 'expired';
+  if (!session.lastHeartbeatAt || now - new Date(session.lastHeartbeatAt).getTime() > HEARTBEAT_TIMEOUT_MS) return 'disconnected';
+  return session.connectionStatus === 'reconnecting' ? 'reconnecting' : 'connected';
+}
+async function authorizedExamUser(db, req) {
+  const user = authUser(req);
+  if (!user?.examId || !user?.rollNo) return { error: 'An authenticated exam session is required.', status: 403 };
+  const [student, exam] = await Promise.all([
+    db.collection('students').findOne({ $or: [{ _id: user.rollNo }, { rollNo: user.rollNo }] }),
+    db.collection('exams').findOne({ _id: idValue(user.examId) })
+  ]);
+  if (!student || !exam || !studentMatchesExam(exam, student)) return { error: 'You are not eligible for this examination.', status: 403 };
+  const startAt = scheduledStartInIndia(exam), endAt = startAt + examDurationMs(exam);
+  if (!Number.isFinite(startAt) || !Number.isFinite(endAt)) return { error: 'The exam schedule is invalid.', status: 409 };
+  return { user, student, exam, startAt, endAt, studentId: String(student.rollNo || user.rollNo).toUpperCase() };
+}
+function publicSession(session) {
+  return { sessionId: String(session._id), examId: session.examId, studentId: session.studentId, serverStartedAt: session.serverStartedAt, scheduledEndAt: session.scheduledEndAt, lastHeartbeatAt: session.lastHeartbeatAt, connectionStatus: session.connectionStatus, state: sessionState(session), finalSubmissionStatus: session.finalSubmissionStatus || 'not_submitted', warningState: session.warningState || { count: 0 }, updatedAt: session.updatedAt };
+}
+
 export async function handleExamApi(req, res, action) {
   const db = await getDb();
   await ensureExamLifecycle(db);
+  if (action === 'session-start' && req.method === 'POST') {
+    const context = await authorizedExamUser(db, req);
+    if (context.error) return res.status(context.status).json({ error: context.error });
+    const { startAt, endAt, exam, studentId } = context;
+    const now = Date.now();
+    if (now < startAt - 15 * 60 * 1000) return res.status(403).json({ error: 'Secure check-in is not open yet.' });
+    if (now >= endAt) return res.status(410).json({ error: 'This exam has ended.' });
+    const checkin = await db.collection('proctor_checkins').findOne({ examId: String(exam._id), studentId: { $in: [String(context.user.rollNo), studentId] }, expiresAt: { $gt: new Date() } });
+    if (!checkin) return res.status(403).json({ error: 'Complete the required camera check-in before starting the exam.' });
+    const suppliedDeviceId = deviceId(req.body?.deviceId);
+    if (!suppliedDeviceId) return res.status(400).json({ error: 'A valid device identifier is required.' });
+    const key = { examId: String(exam._id), studentId };
+    const existing = await db.collection('exam_sessions').findOne(key);
+    if (existing?.finalSubmissionStatus === 'submitted') return res.status(409).json({ error: 'This exam was already submitted.' });
+    const existingHeartbeat = existing?.lastHeartbeatAt ? new Date(existing.lastHeartbeatAt).getTime() : 0;
+    if (existing && existing.deviceId !== suppliedDeviceId && now - existingHeartbeat <= HEARTBEAT_TIMEOUT_MS) {
+      return res.status(409).json({ error: 'This exam is active on another device.', code: 'DUPLICATE_SESSION' });
+    }
+    const sessionId = existing?._id || `session:${crypto.randomUUID()}`;
+    const connectionStatus = existing && existing.deviceId !== suppliedDeviceId ? 'reconnecting' : 'connected';
+    try {
+      await db.collection('exam_sessions').updateOne(key, { $set: {
+        _id: sessionId, examId: String(exam._id), studentId, deviceId: suppliedDeviceId, serverStartedAt: existing?.serverStartedAt || new Date(),
+        scheduledStartAt: new Date(startAt), scheduledEndAt: new Date(endAt), lastHeartbeatAt: new Date(), connectionStatus,
+        state: 'active', finalSubmissionStatus: existing?.finalSubmissionStatus || 'not_submitted', warningState: existing?.warningState || { count: 0 }, updatedAt: new Date()
+      }, $setOnInsert: { createdAt: new Date() } }, { upsert: true });
+    } catch (error) {
+      // The unique compound index is the final arbiter when concurrent serverless
+      // requests both observe no session. Re-read and apply the same device rule.
+      if (error?.code !== 11000) throw error;
+      const raced = await db.collection('exam_sessions').findOne(key);
+      const racedHeartbeat = raced?.lastHeartbeatAt ? new Date(raced.lastHeartbeatAt).getTime() : 0;
+      if (!raced || (raced.deviceId !== suppliedDeviceId && now - racedHeartbeat <= HEARTBEAT_TIMEOUT_MS)) return res.status(409).json({ error: 'This exam is active on another device.', code: 'DUPLICATE_SESSION' });
+      await db.collection('exam_sessions').updateOne({ _id: raced._id, deviceId: raced.deviceId }, { $set: { deviceId: suppliedDeviceId, lastHeartbeatAt: new Date(), connectionStatus: 'reconnecting', state: 'active', updatedAt: new Date() } });
+    }
+    const session = await db.collection('exam_sessions').findOne(key);
+    return res.status(200).json({ session: publicSession(session), heartbeatIntervalMs: HEARTBEAT_MIN_INTERVAL_MS, heartbeatTimeoutMs: HEARTBEAT_TIMEOUT_MS });
+  }
+  if (action === 'heartbeat' && req.method === 'POST') {
+    const context = await authorizedExamUser(db, req);
+    if (context.error) return res.status(context.status).json({ error: context.error });
+    const sessionId = String(req.body?.sessionId || ''); const suppliedDeviceId = deviceId(req.body?.deviceId);
+    if (!sessionId || !suppliedDeviceId) return res.status(400).json({ error: 'Session and device identifiers are required.' });
+    const session = await db.collection('exam_sessions').findOne({ _id: sessionId, examId: String(context.exam._id), studentId: context.studentId, deviceId: suppliedDeviceId });
+    if (!session) return res.status(403).json({ error: 'This session does not belong to the authenticated student.' });
+    if (session.finalSubmissionStatus === 'submitted' || Date.now() >= context.endAt) return res.status(410).json({ error: 'This examination session is no longer active.' });
+    const now = Date.now();
+    if (now >= context.endAt || session.finalSubmissionStatus === 'submitted') return res.status(410).json({ error: 'This examination session is no longer active.', session: publicSession(session) });
+    const prior = new Date(session.lastHeartbeatAt || 0).getTime();
+    if (now - prior < HEARTBEAT_REQUEST_MIN_INTERVAL_MS) return res.status(429).json({ error: 'Heartbeat rate limit exceeded. Retry shortly.' });
+    const status = now - prior > HEARTBEAT_TIMEOUT_MS ? 'reconnecting' : 'connected';
+    if (now - prior >= HEARTBEAT_MIN_INTERVAL_MS) await db.collection('exam_sessions').updateOne({ _id: session._id }, { $set: { lastHeartbeatAt: new Date(), connectionStatus: status, state: 'active', updatedAt: new Date() } });
+    const updated = await db.collection('exam_sessions').findOne({ _id: session._id });
+    return res.status(200).json({ session: publicSession(updated), serverTime: new Date().toISOString() });
+  }
+  if (action === 'events-sync' && req.method === 'POST') {
+    const context = await authorizedExamUser(db, req);
+    if (context.error) return res.status(context.status).json({ error: context.error });
+    const sessionId = String(req.body?.sessionId || ''); const suppliedDeviceId = deviceId(req.body?.deviceId);
+    const events = Array.isArray(req.body?.events) ? req.body.events : [];
+    if (!sessionId || !suppliedDeviceId || !events.length || events.length > 100) return res.status(400).json({ error: 'Provide 1 to 100 events with a valid session.' });
+    const session = await db.collection('exam_sessions').findOne({ _id: sessionId, examId: String(context.exam._id), studentId: context.studentId, deviceId: suppliedDeviceId });
+    if (!session) return res.status(403).json({ error: 'This session does not belong to the authenticated student.' });
+    if (session.finalSubmissionStatus === 'submitted' || Date.now() >= context.endAt) return res.status(410).json({ error: 'This examination session is no longer active.' });
+    const accepted = [], rejected = []; const ops = [];
+    for (const event of events) {
+      const eventId = String(event?.eventId || ''); const type = String(event?.type || '').toUpperCase();
+      const timestamp = new Date(event?.timestamp);
+      if (!/^[A-Za-z0-9:_-]{16,180}$/.test(eventId) || !SESSION_EVENT_TYPES.has(type) || !Number.isFinite(timestamp.getTime()) || Math.abs(Date.now() - timestamp.getTime()) > 7 * 24 * 60 * 60 * 1000) { rejected.push(eventId || 'invalid'); continue; }
+      const [category, severity, policyAction] = EVENT_POLICY[type] || ['other', 'info', 'none'];
+      const metadata = event.metadata && typeof event.metadata === 'object' && !Array.isArray(event.metadata) ? JSON.parse(JSON.stringify(event.metadata).slice(0, 8000)) : {};
+      ops.push({ updateOne: { filter: { eventId }, update: { $setOnInsert: { eventId, sessionId, examId: String(context.exam._id), studentId: context.studentId, category, type, severity, confidence: Math.max(0, Math.min(1, Number(event.confidence) || 0)), timestamp, receivedAt: new Date(), expiresAt: new Date(Date.now() + PROCTOR_EVENT_RETENTION_DAYS * 86400000), metadata, evidenceRef: typeof event.evidenceRef === 'string' ? event.evidenceRef.slice(0, 300) : null, policyAction, processingStatus: 'pending_review' } }, upsert: true } }); accepted.push(eventId);
+    }
+    if (ops.length) await db.collection('proctor_events').bulkWrite(ops, { ordered: false });
+    return res.status(200).json({ accepted, rejected, receivedAt: new Date().toISOString() });
+  }
+  if (action === 'sessions' && req.method === 'GET') {
+    const user = authUser(req); if (user?.role !== 'admin') return res.status(403).json({ error: 'Administrator access required.' });
+    const limit = Math.min(100, Math.max(1, Number(req.query?.limit || 25))); const page = Math.max(0, Number(req.query?.page || 0));
+    const filter = {}; for (const key of ['examId','studentId']) if (typeof req.query?.[key] === 'string' && req.query[key]) filter[key] = req.query[key];
+    const requestedState = String(req.query?.state || ''); const now = new Date(); const staleAt = new Date(Date.now() - HEARTBEAT_TIMEOUT_MS);
+    if (requestedState === 'submitted') filter.finalSubmissionStatus = 'submitted';
+    else if (requestedState === 'active') filter.state = 'active';
+    else if (requestedState === 'connected') Object.assign(filter, { state: 'active', finalSubmissionStatus: { $ne: 'submitted' }, scheduledEndAt: { $gt: now }, lastHeartbeatAt: { $gte: staleAt } });
+    else if (requestedState === 'disconnected') Object.assign(filter, { state: 'active', finalSubmissionStatus: { $ne: 'submitted' }, $or: [{ lastHeartbeatAt: { $lt: staleAt } }, { lastHeartbeatAt: { $exists: false } }] });
+    else if (requestedState && requestedState !== 'all') return res.status(400).json({ error: 'Invalid session state filter.' });
+    const sessions = await db.collection('exam_sessions').find(filter).sort({ updatedAt: -1 }).skip(page * limit).limit(limit).toArray();
+    const ids = sessions.map(item => item._id); const eventCounts = ids.length ? await db.collection('proctor_events').aggregate([{ $match: { sessionId: { $in: ids } } }, { $group: { _id: '$sessionId', count: { $sum: 1 }, latestEventAt: { $max: '$receivedAt' } } }]).toArray() : [];
+    const counts = new Map(eventCounts.map(row => [row._id, row]));
+    return res.status(200).json({ sessions: sessions.map(item => ({ ...publicSession(item), eventCount: counts.get(item._id)?.count || 0, latestEventAt: counts.get(item._id)?.latestEventAt || null })), page, limit, total: await db.collection('exam_sessions').countDocuments(filter) });
+  }
+  if (action === 'session-timeline' && req.method === 'GET') {
+    const user = authUser(req); if (user?.role !== 'admin') return res.status(403).json({ error: 'Administrator access required.' });
+    const sessionId = String(req.query?.sessionId || ''); if (!sessionId) return res.status(400).json({ error: 'Session ID is required.' });
+    const session = await db.collection('exam_sessions').findOne({ _id: sessionId }); if (!session) return res.status(404).json({ error: 'Session not found.' });
+    const events = await db.collection('proctor_events').find({ sessionId }).sort({ timestamp: 1 }).limit(1000).toArray();
+    return res.status(200).json({ session: publicSession(session), events: events.map(({ _id, ...event }) => ({ id: String(_id || event.eventId), ...event })) });
+  }
+  if (action === 'review-event' && req.method === 'POST') {
+    const user = authUser(req); if (user?.role !== 'admin') return res.status(403).json({ error: 'Administrator access required.' });
+    const eventId = String(req.body?.eventId || ''); const decision = String(req.body?.decision || '');
+    if (!eventId || !['confirmed','dismissed','escalated'].includes(decision)) return res.status(400).json({ error: 'A valid event decision is required.' });
+    const event = await db.collection('proctor_events').findOne({ eventId }); if (!event) return res.status(404).json({ error: 'Event not found.' });
+    const review = { decision, reviewerId: String(user.uid || user.email || 'admin'), reviewedAt: new Date(), note: String(req.body?.note || '').slice(0, 1000) };
+    await db.collection('proctor_events').updateOne({ eventId }, { $set: { processingStatus: decision, review, updatedAt: new Date() } });
+    await db.collection('evidence_audit').insertOne({ eventId, sessionId: event.sessionId, action: `review_${decision}`, actor: review.reviewerId, at: new Date(), expiresAt: new Date(Date.now() + PROCTOR_EVENT_RETENTION_DAYS * 86400000) });
+    return res.status(200).json({ success: true, review });
+  }
   if (action === 'checkin' && req.method === 'POST') {
     const user = authUser(req);
     if (!user?.examId || !user?.rollNo) return res.status(403).json({ error: 'An active exam session is required.' });

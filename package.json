@@ -11,7 +11,9 @@
     "migrate:firebase": "node --env-file=.env.local scripts/migrateFirebaseToMongo.mjs",
     "provision:student": "node --env-file=.env.local scripts/provisionStudent.mjs",
     "verify:mongo": "node --env-file=.env.local scripts/verifyMongo.mjs",
-    "verify:activation": "node --env-file=.env.local scripts/verifyActivation.mjs"
+    "verify:activation": "node --env-file=.env.local scripts/verifyActivation.mjs",
+    "test:load": "node scripts/loadTest.mjs",
+    "benchmark:runner": "node scripts/benchmarkRunner.mjs"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.0.1",

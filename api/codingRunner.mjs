@@ -21,13 +21,14 @@ export async function executeCode({code, language, stdin = ''}) {
     if (!response.ok) throw new Error(`Judge runner returned HTTP ${response.status}.`);
     return response.json();
   });
+  // Public fallback is last. A configured institutional runner or Judge0
+  // deployment is normally closer and less queue-prone than the public pool.
   attempts.push(async () => {
     const response = await fetch('https://ce.judge0.com/submissions?base64_encoded=false&wait=true', { method:'POST', signal:AbortSignal.timeout(25000), headers:{'Content-Type':'application/json'}, body:JSON.stringify({source_code:code,language_id:ids[language],stdin,cpu_time_limit:2,wall_time_limit:5,memory_limit:128000}) });
     if (!response.ok) throw new Error(`Free compiler runner returned HTTP ${response.status}.`);
     const result = await response.json();
     return result;
   });
-  attempts.reverse();
   let lastError;
   for (const attempt of attempts) {
     try {
@@ -35,7 +36,7 @@ export async function executeCode({code, language, stdin = ''}) {
       if (data?.error || data?.success === false) throw new Error('Compiler service could not execute the program.');
       const result = data?.data && typeof data.data === 'object' ? data.data : data;
       if (result.stdout === undefined && !result.stderr && !result.compile_output && !result.status && result.output === undefined) throw new Error('Compiler returned an unsupported response.');
-      return {...result, stdout:String(result.stdout ?? result.output ?? '').slice(0,100000)};
+      return {...result, stdout:String(result.stdout ?? result.output ?? '').slice(0,100000), executionMeta:{ provider: direct ? 'configured-or-judge0' : 'public-judge0', receivedAt: new Date().toISOString() }};
     } catch (error) { lastError = error; }
   }
   throw new Error(lastError?.message || 'Compiler service unavailable.');
