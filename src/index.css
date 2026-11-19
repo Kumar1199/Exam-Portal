@@ -697,6 +697,8 @@ label.field-label {
    UTILITY OVERRIDES
    ============================================ */
 input, textarea, select { outline: none; font-family: inherit; }
+select { background-color: #18181b; color: #ffffff; color-scheme: dark; }
+select option { background: #18181b; color: #ffffff; }
 
 /* Prevent text in sidebar being selected on collapse */
 .no-select { user-select: none; }

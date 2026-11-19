@@ -276,7 +276,7 @@ export default function ProfilePage() {
                 className="text-sm text-white bg-transparent border-b w-full outline-none pb-0.5"
                 style={{ borderColor: '#f97316' }} />
             ) : studentData?.mobile} />
-            <InfoRow label="Gender" value={editing ? <select value={form.gender} onChange={e => setForm(f => ({ ...f, gender: e.target.value }))} className="text-sm text-white bg-transparent border-b w-full outline-none pb-0.5" style={{ borderColor: '#f97316' }}><option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select> : studentData?.gender} />
+            <InfoRow label="Gender" value={editing ? <select value={form.gender} onChange={e => setForm(f => ({ ...f, gender: e.target.value }))} className="text-sm border-b w-full outline-none pb-0.5" style={{ borderColor: '#f97316', background: '#18181b', color: '#ffffff', colorScheme: 'dark' }}><option value="" style={{ background: '#18181b', color: '#ffffff' }}>Select gender</option><option value="Male" style={{ background: '#18181b', color: '#ffffff' }}>Male</option><option value="Female" style={{ background: '#18181b', color: '#ffffff' }}>Female</option><option value="Other" style={{ background: '#18181b', color: '#ffffff' }}>Other</option></select> : studentData?.gender} />
           </div>
         </div>
 
