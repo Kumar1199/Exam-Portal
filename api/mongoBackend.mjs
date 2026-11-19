@@ -236,6 +236,10 @@ export async function handleMongo(req, res) {
   if (req.body?.limit !== undefined && (!Number.isInteger(req.body.limit) || req.body.limit < 1 || req.body.limit > 5000)) return res.status(400).json({ error: 'Limit must be between 1 and 5000.' });
   const db = await getDb();
   await ensureExamLifecycle(db);
+  // A failed coding evaluation is retried automatically when an administrator
+  // opens Results, in addition to the secured daily server cron. Keeping this
+  // route server-side prevents students from forging grading requests.
+  if (name === 'results' && operation === 'list' && user.role === 'admin') await retryPendingEvaluations(db, 1);
   if (name === 'notifications' && operation === 'list') await syncSystemNotifications(db);
   const collection = db.collection(name);
   if (name === 'generated_questions' && user.role !== 'admin' && !['get','list'].includes(operation) && await db.collection('question_banks').findOne({_id:String(user.examId)})) return res.status(403).json({error:'This exam uses administrator-uploaded questions.'});
