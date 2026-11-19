@@ -35,7 +35,11 @@ export default function ProfilePage() {
         setStudentData(student);
         setStudentResults(resultsSnap.docs.map(item => ({ id: item.id, ...item.data() })));
         const links = student.codingProfiles || {};
-        setCodingProfiles({ leetcode: links.leetcode ? { lc_profile: links.leetcode } : null, gfg: null, codechef: links.codechef ? { cc_profile: links.codechef } : null, hackerrank: links.hackerrank ? { hr_profile: links.hackerrank } : null, codeforces: links.codeforces ? { profile: links.codeforces } : null });
+        const profileResponse = await fetch('/api/proxy?path=coding-profiles', { headers: { Authorization: `Bearer ${localStorage.getItem('s360_token') || ''}` } });
+        const live = profileResponse.ok ? await profileResponse.json() : { profiles: {} };
+        const leetcodeLive = live.profiles?.leetcode;
+        const codeforcesLive = live.profiles?.codeforces;
+        setCodingProfiles({ leetcode: links.leetcode ? { lc_profile: links.leetcode, lc_total_progarms: leetcodeLive?.totalSolved, lc_easy: leetcodeLive?.easy, lc_medium: leetcodeLive?.medium, lc_hard: leetcodeLive?.hard, lc_rank: leetcodeLive?.rank } : null, gfg: null, codechef: links.codechef ? { cc_profile: links.codechef } : null, hackerrank: links.hackerrank ? { hr_profile: links.hackerrank } : null, codeforces: links.codeforces ? { profile: links.codeforces, ...codeforcesLive } : null });
         setForm({ phone: student.mobile || student.phone || '', codingProfiles: { leetcode: links.leetcode || '', codechef: links.codechef || '', codeforces: links.codeforces || '', hackerrank: links.hackerrank || '' } });
       } catch (err) { console.error('Profile fetch error:', err); setError(true); }
       finally { setLoading(false); }
@@ -310,8 +314,7 @@ export default function ProfilePage() {
           </div>}
           {codingProfiles.codeforces && <div className="rounded-2xl p-6" style={{ background: '#121212', border: '1px solid #27272a' }}>
             <h3 className="font-bold text-base text-white mb-4 flex items-center justify-between">Codeforces <a href={codingProfiles.codeforces.profile} target="_blank" rel="noreferrer" style={{ color: '#4DA3E6' }}><ExternalLink size={16} /></a></h3>
-            <p className="text-sm" style={{ color: '#a1a1aa' }}>Connected profile</p>
-            <p className="text-xs mt-2" style={{ color: '#71717a' }}>Live contest statistics are refreshed from the profile provider.</p>
+            {codingProfiles.codeforces.live ? <div className="space-y-3"><InfoRow label="Rating" value={codingProfiles.codeforces.rating || 'Unrated'} /><InfoRow label="Rank" value={codingProfiles.codeforces.rank || 'Unrated'} /><InfoRow label="Problems solved" value={codingProfiles.codeforces.solved || 0} /><InfoRow label="Max rating" value={codingProfiles.codeforces.maxRating || '—'} /></div> : <p className="text-sm" style={{ color: '#a1a1aa' }}>Connected. Live Codeforces statistics are temporarily unavailable.</p>}
           </div>}
           {/* LeetCode */}
           <div className="rounded-2xl p-6" style={{ background: '#121212', border: '1px solid #27272a' }}>

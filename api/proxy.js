@@ -1,4 +1,5 @@
 import { handleAuth, handleMongo, handleExamApi } from './mongoBackend.mjs';
+import { handleCodingProfiles } from './codingProfiles.mjs';
 import https from 'https';
 
 export default async function handler(req, res) {
@@ -14,6 +15,7 @@ export default async function handler(req, res) {
   const targetPath = req.query.path;
   if (targetPath?.startsWith('auth/')) return handleAuth(req, res, targetPath.slice(5));
   if (targetPath === 'mongo') return handleMongo(req, res);
+  if (targetPath === 'coding-profiles') return handleCodingProfiles(req, res);
   if (targetPath?.startsWith('exam/')) return handleExamApi(req, res, targetPath.slice(5));
   if (!targetPath) {
     return res.status(400).json({ error: 'Missing path parameter' });
