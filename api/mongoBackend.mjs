@@ -639,7 +639,7 @@ export async function handleExamApi(req, res, action) {
     const session = { rollNo, examId: String(invite.examId || ''), pin, exp: Math.floor(Date.now() / 1000) + 4 * 60 * 60 };
     const token = sign({ ...session, exp: Math.floor(Date.now()/1000)+14400 });
     const normalize = value => value && ({ ...value, _id: undefined, id: String(value._id) });
-    return res.status(200).json({ success: true, token, invite: normalize(invite), student: { rollNumber: rollNo, name: student?.name || invite.name || 'Student', examType: invite.examType || exam?.examType || exam?.type || 'MCQ', difficulty: invite.difficulty || exam?.difficulty || 'medium', subject: invite.subject || exam?.subject || exam?.title || 'General' }, schedule: normalize(exam || invite) });
+    return res.status(200).json({ success: true, token, invite: normalize(invite), clientUpdate: { minimumVersion: process.env.SECURE_EXAM_MIN_VERSION || '1.0.12', downloadUrl: process.env.SECURE_EXAM_DOWNLOAD_URL || 'https://github.com/Kumar1199/Secure-app/releases/download/v1.0.12/SecureExam.Setup.1.0.12.exe' }, student: { rollNumber: rollNo, name: student?.name || invite.name || 'Student', examType: invite.examType || exam?.examType || exam?.type || 'MCQ', difficulty: invite.difficulty || exam?.difficulty || 'medium', subject: invite.subject || exam?.subject || exam?.title || 'General' }, schedule: normalize(exam || invite) });
   }
   return res.status(404).json({ error: 'Exam endpoint not found.' });
 }
