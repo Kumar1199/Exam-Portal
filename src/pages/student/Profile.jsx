@@ -17,7 +17,7 @@ export default function ProfilePage() {
   const [studentData, setStudentData] = useState(null);
   const [studentResults, setStudentResults] = useState([]);
   const [codingProfiles, setCodingProfiles] = useState({ leetcode: null, gfg: null, codechef: null, hackerrank: null });
-  const [form, setForm] = useState({ phone: '', codingProfiles: { leetcode: '', codechef: '', codeforces: '', hackerrank: '' } });
+  const [form, setForm] = useState({ phone: '', gender: '', codingProfiles: { leetcode: '', gfg: '', codechef: '', hackerrank: '' } });
   const [error, setError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
@@ -26,11 +26,12 @@ export default function ProfilePage() {
     const fetchProfileData = async () => {
       // MongoDB is the only profile source.  Never fall back to legacy profile APIs.
       try {
-        const [studentSnap, resultsSnap] = await Promise.all([
-          getDoc(doc(db, 'students', rollNo)),
+        const [studentList, resultsSnap] = await Promise.all([
+          getDocs(query(collection(db, 'students'), where('rollNo', '==', rollNo))),
           getDocs(query(collection(db, 'results'), where('rollNo', '==', rollNo))),
         ]);
-        const student = studentSnap.exists() ? studentSnap.data() : null;
+        const canonical = studentList.docs.map(item => ({ id: item.id, ...item.data() })).find(item => item.name || item.email || item.college) || null;
+        const student = canonical;
         if (!student) throw new Error('Student profile not found');
         setStudentData(student);
         setStudentResults(resultsSnap.docs.map(item => ({ id: item.id, ...item.data() })));
@@ -38,9 +39,8 @@ export default function ProfilePage() {
         const profileResponse = await fetch('/api/proxy?path=coding-profiles', { headers: { Authorization: `Bearer ${localStorage.getItem('s360_token') || ''}` } });
         const live = profileResponse.ok ? await profileResponse.json() : { profiles: {} };
         const leetcodeLive = live.profiles?.leetcode;
-        const codeforcesLive = live.profiles?.codeforces;
-        setCodingProfiles({ leetcode: links.leetcode ? { lc_profile: links.leetcode, lc_total_progarms: leetcodeLive?.totalSolved, lc_easy: leetcodeLive?.easy, lc_medium: leetcodeLive?.medium, lc_hard: leetcodeLive?.hard, lc_rank: leetcodeLive?.rank } : null, gfg: null, codechef: links.codechef ? { cc_profile: links.codechef } : null, hackerrank: links.hackerrank ? { hr_profile: links.hackerrank } : null, codeforces: links.codeforces ? { profile: links.codeforces, ...codeforcesLive } : null });
-        setForm({ phone: student.mobile || student.phone || '', codingProfiles: { leetcode: links.leetcode || '', codechef: links.codechef || '', codeforces: links.codeforces || '', hackerrank: links.hackerrank || '' } });
+        setCodingProfiles({ leetcode: links.leetcode ? { lc_profile: links.leetcode, lc_total_progarms: leetcodeLive?.totalSolved, lc_easy: leetcodeLive?.easy, lc_medium: leetcodeLive?.medium, lc_hard: leetcodeLive?.hard, lc_rank: leetcodeLive?.rank } : null, gfg: links.gfg ? { gfg_profile: links.gfg } : null, codechef: links.codechef ? { cc_profile: links.codechef } : null, hackerrank: links.hackerrank ? { hr_profile: links.hackerrank } : null });
+        setForm({ phone: student.mobile || student.phone || '', gender: student.gender || '', codingProfiles: { leetcode: links.leetcode || '', gfg: links.gfg || '', codechef: links.codechef || '', hackerrank: links.hackerrank || '' } });
       } catch (err) { console.error('Profile fetch error:', err); setError(true); }
       finally { setLoading(false); }
       return;
@@ -177,9 +177,8 @@ export default function ProfilePage() {
     setLoading(true);
     try {
       if (user?.uid) {
-        await setDoc(doc(db, 'students', rollNo), {
-          phone: form.phone,
-          mobile: form.phone,
+        await setDoc(doc(db, 'students', studentData?.id || rollNo), {
+          phone: form.phone, mobile: form.phone, gender: form.gender,
           codingProfiles: form.codingProfiles,
         }, { merge: true });
         toast.success('Profile updated successfully!');
@@ -277,7 +276,7 @@ export default function ProfilePage() {
                 className="text-sm text-white bg-transparent border-b w-full outline-none pb-0.5"
                 style={{ borderColor: '#f97316' }} />
             ) : studentData?.mobile} />
-            <InfoRow label="Gender" value={studentData?.gender} />
+            <InfoRow label="Gender" value={editing ? <select value={form.gender} onChange={e => setForm(f => ({ ...f, gender: e.target.value }))} className="text-sm text-white bg-transparent border-b w-full outline-none pb-0.5" style={{ borderColor: '#f97316' }}><option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select> : studentData?.gender} />
           </div>
         </div>
 
@@ -309,12 +308,8 @@ export default function ProfilePage() {
             <h3 className="font-bold text-base text-white mb-2">Connect coding profiles</h3>
             <p className="text-sm mb-4" style={{ color: '#a1a1aa' }}>Paste your public profile links. They are saved securely to your student record.</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {[['leetcode', 'LeetCode profile URL'], ['codechef', 'CodeChef profile URL'], ['codeforces', 'Codeforces profile URL'], ['hackerrank', 'HackerRank profile URL']].map(([key, label]) => <input key={key} value={form.codingProfiles?.[key] || ''} onChange={e => setForm(current => ({ ...current, codingProfiles: { ...current.codingProfiles, [key]: e.target.value.trim() } }))} placeholder={label} className="rounded-xl px-4 py-3 text-sm text-white" style={{ background: '#18181b', border: '1px solid #3f3f46' }} />)}
+              {[['leetcode', 'LeetCode profile URL'], ['gfg', 'GeeksForGeeks profile URL'], ['codechef', 'CodeChef profile URL'], ['hackerrank', 'HackerRank profile URL']].map(([key, label]) => <input key={key} value={form.codingProfiles?.[key] || ''} onChange={e => setForm(current => ({ ...current, codingProfiles: { ...current.codingProfiles, [key]: e.target.value.trim() } }))} placeholder={label} className="rounded-xl px-4 py-3 text-sm text-white" style={{ background: '#18181b', border: '1px solid #3f3f46' }} />)}
             </div>
-          </div>}
-          {codingProfiles.codeforces && <div className="rounded-2xl p-6" style={{ background: '#121212', border: '1px solid #27272a' }}>
-            <h3 className="font-bold text-base text-white mb-4 flex items-center justify-between">Codeforces <a href={codingProfiles.codeforces.profile} target="_blank" rel="noreferrer" style={{ color: '#4DA3E6' }}><ExternalLink size={16} /></a></h3>
-            {codingProfiles.codeforces.live ? <div className="space-y-3"><InfoRow label="Rating" value={codingProfiles.codeforces.rating || 'Unrated'} /><InfoRow label="Rank" value={codingProfiles.codeforces.rank || 'Unrated'} /><InfoRow label="Problems solved" value={codingProfiles.codeforces.solved || 0} /><InfoRow label="Max rating" value={codingProfiles.codeforces.maxRating || '—'} /></div> : <p className="text-sm" style={{ color: '#a1a1aa' }}>Connected. Live Codeforces statistics are temporarily unavailable.</p>}
           </div>}
           {/* LeetCode */}
           <div className="rounded-2xl p-6" style={{ background: '#121212', border: '1px solid #27272a' }}>

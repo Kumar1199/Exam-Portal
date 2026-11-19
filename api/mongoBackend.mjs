@@ -84,7 +84,7 @@ function canWrite(user, name, operation, id, data = {}) {
     if (name === 'exam_submissions' && operation === 'insert' && String(data.studentId || '').toUpperCase() === roll && String(data.examId || '') === String(user.examId)) return true;
     return false;
   }
-  if (name === 'students' && ['update', 'merge'].includes(operation)) return roll && String(id || '').toUpperCase() === roll && Object.keys(data).every(key => ['phone', 'mobile', 'codingProfiles'].includes(key));
+  if (name === 'students' && ['update', 'merge'].includes(operation)) return roll && (String(id || '').toUpperCase() === roll || String(id || '') === String(user.studentId || '')) && Object.keys(data).every(key => ['phone', 'mobile', 'gender', 'codingProfiles'].includes(key));
   return false;
 }
 
