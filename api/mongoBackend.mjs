@@ -39,7 +39,10 @@ export async function getDb() {
   if (!checkinIndexPromise) checkinIndexPromise = db.collection('proctor_checkins').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }).catch(() => null);
   if (!coreIndexPromise) coreIndexPromise = Promise.all([
     db.collection('students').createIndex({ rollNo: 1 }, { unique: true }),
-    db.collection('examInvites').createIndex({ examId: 1, rollNo: 1 }, { unique: true }),
+    // Older deployments already have this same unique key with a partial
+    // filter. MongoDB reports code 86 when asked to recreate it without that
+    // legacy option; the existing index still enforces the required invariant.
+    db.collection('examInvites').createIndex({ examId: 1, rollNo: 1 }, { unique: true }).catch(error => { if (error?.code === 86) return null; throw error; }),
     db.collection('exam_submissions').createIndex({ examId: 1, studentId: 1 }, { unique: true }),
     db.collection('results').createIndex({ examId: 1, rollNo: 1 }),
     db.collection('results').createIndex({ rollNo: 1, date: -1 }),
