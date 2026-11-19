@@ -41,7 +41,7 @@ export default function LoginPage() {
     setLoginError('');
     setLoading(true);
     if (!email.trim() || !password) {
-      setLoginError('Enter your email and password to continue.');
+      setLoginError('Email and password are both required.');
       setLoading(false);
       return;
     }
@@ -52,7 +52,7 @@ export default function LoginPage() {
       toast.success(`${displayRole.charAt(0).toUpperCase() + displayRole.slice(1)} Login Successful`);
       navigate(`/${displayRole}/dashboard`);
     } else {
-      setLoginError(result.error || 'Sign-in failed. Check your credentials and selected role.');
+      setLoginError(result.error || 'Email or password is incorrect. Check your selected role and try again.');
     }
     setLoading(false);
   };
@@ -174,7 +174,7 @@ export default function LoginPage() {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 10 }}
                   transition={{ duration: 0.3 }}
-                  onSubmit={handleLogin}
+                  onSubmit={handleLogin} noValidate
                   className="space-y-5"
                 >
                   {/* Email Input */}
@@ -188,7 +188,7 @@ export default function LoginPage() {
                         type="email"
                         placeholder="student@s360.edu"
                         value={email}
-                        onChange={(e) => setEmail(e.target.value)}
+                        onChange={(e) => { setEmail(e.target.value); setLoginError(''); }} aria-invalid={!!loginError}
                         className="w-full pl-12 pr-4 py-4 rounded-2xl bg-black/40 border border-white/10 text-white outline-none focus:border-orange-500/50 focus:bg-black/60 transition-all placeholder:text-zinc-700 font-medium"
                       />
                     </div>
@@ -205,7 +205,7 @@ export default function LoginPage() {
                         type={showPassword ? 'text' : 'password'}
                         placeholder="••••••••"
                         value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        onChange={(e) => { setPassword(e.target.value); setLoginError(''); }} aria-invalid={!!loginError}
                         className="w-full pl-12 pr-12 py-4 rounded-2xl bg-black/40 border border-white/10 text-white outline-none focus:border-orange-500/50 focus:bg-black/60 transition-all placeholder:text-zinc-700 font-medium"
                       />
                       <button
@@ -249,7 +249,7 @@ export default function LoginPage() {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -10 }}
                   transition={{ duration: 0.3 }}
-                  onSubmit={handleLogin}
+                  onSubmit={handleLogin} noValidate
                   className="space-y-5"
                 >
                   {/* Email Input */}
@@ -263,7 +263,7 @@ export default function LoginPage() {
                         type="email"
                         placeholder="admin@s360.edu"
                         value={email}
-                        onChange={(e) => setEmail(e.target.value)}
+                        onChange={(e) => { setEmail(e.target.value); setLoginError(''); }} aria-invalid={!!loginError}
                         className="w-full pl-12 pr-4 py-4 rounded-2xl bg-black/40 border border-white/10 text-white outline-none focus:border-orange-500/50 focus:bg-black/60 transition-all placeholder:text-zinc-700 font-medium"
                       />
                     </div>
@@ -280,7 +280,7 @@ export default function LoginPage() {
                         type={showPassword ? 'text' : 'password'}
                         placeholder="••••••••"
                         value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        onChange={(e) => { setPassword(e.target.value); setLoginError(''); }} aria-invalid={!!loginError}
                         className="w-full pl-12 pr-12 py-4 rounded-2xl bg-black/40 border border-white/10 text-white outline-none focus:border-orange-500/50 focus:bg-black/60 transition-all placeholder:text-zinc-700 font-medium"
                       />
                       <button
