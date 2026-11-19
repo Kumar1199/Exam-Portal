@@ -4,7 +4,7 @@ import { studentMatchesExam, validateExamAudience } from '../src/utils/examAudie
 import { activateAccount, prepareStudentActivations, sendActivations, emailConfigured } from './activation.mjs';
 import { sanitizeEvidence } from './proctorEvidence.mjs';
 import { ensureExamInvite } from './examInvites.mjs';
-import { questionBankApi } from './questionBank.mjs';
+import { questionBankApi, retryPendingEvaluations } from './questionBank.mjs';
 import { publishBankResult } from './examResults.mjs';
 import { gradeBank } from './codingRunner.mjs';
 function sign(payload) {
@@ -169,6 +169,10 @@ export async function handleAuth(req, res, action) {
     if (caller?.role !== 'admin' && !cron) return res.status(403).json({ error: 'Administrator access required.' });
     return res.status(200).json(await sendActivations(db, cron ? 100 : 25));
   }
+  if (action === 'retry-pending-evaluations' && (req.method === 'POST' || req.method === 'GET')) {
+    if (caller?.role !== 'admin' && !cron) return res.status(403).json({ error: 'Administrator or cron access required.' });
+    return res.status(200).json(await retryPendingEvaluations(db, cron ? 10 : 5));
+  }
   if (action === 'activation-status' && req.method === 'GET') {
     if (caller?.role !== 'admin') return res.status(403).json({ error: 'Administrator access required.' });
     return res.status(200).json({ configured: emailConfigured(), pending: await db.collection('activationQueue').countDocuments({ status: { $in: ['queued','retry','sending'] } }) });
@@ -314,8 +318,17 @@ export async function handleMongo(req, res) {
         delete data.questions; delete data.testCases; delete data.results;
         for (const key of ['score','percentage','passedCases','totalCases','allPassed','evaluationPending']) delete data[key];
         data.questionRevision=bank.revision;
-        if (bank.type === 'Coding' && data.submissionReason === 'proctor_limit') { data.evaluationPending=true; data.evaluationError='Saved for administrator evaluation.'; }
-        else { try { Object.assign(data,await gradeBank(bank,data)); } catch { data.evaluationPending=true; data.evaluationError='Compiler service unavailable. Answers saved for retry.'; } }
+        if (['Coding','Mixed'].includes(bank.type) && data.submissionReason === 'proctor_limit') { data.evaluationPending=true; data.evaluationError='Saved for administrator evaluation.'; }
+        else {
+          try { Object.assign(data,await gradeBank(bank,data)); }
+          catch {
+            data.evaluationPending=true;
+            data.evaluationError='Compiler service unavailable. Automatic retry scheduled.';
+            data.evaluationRetryEligible=true;
+            data.evaluationRetryCount=0;
+            data.nextEvaluationAttemptAt=new Date(Date.now()+15_000);
+          }
+        }
       }
       const submissionId = existing?._id || 'submission:' + crypto.createHash('sha256').update(JSON.stringify([data.studentId, data.examId])).digest('hex');
       const report = data.proctorReport && typeof data.proctorReport === 'object' ? { ...data.proctorReport } : undefined;

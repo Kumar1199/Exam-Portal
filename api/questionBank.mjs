@@ -2,6 +2,67 @@ import {parseQuestionCsv} from '../src/utils/questionCsv.mjs';
 import {publishBankResult} from './examResults.mjs';
 import {gradeBank} from './codingRunner.mjs';
 import {executeCode, runnerLanguages, executionPassed} from './codingRunner.mjs';
+
+// Only transient compiler failures are eligible for unattended retry. A
+// proctor-limit submission remains deliberately review-only.
+const RETRY_DELAY_MS = 15_000;
+const RETRY_LEASE_MS = 2 * 60_000;
+const MAX_RETRY_DELAY_MS = 15 * 60_000;
+
+export async function retryPendingEvaluations(db, limit = 10) {
+  const now = new Date();
+  const submissions = await db.collection('exam_submissions').find({
+    evaluationPending: true,
+    evaluationRetryEligible: true,
+    nextEvaluationAttemptAt: { $lte: now },
+  }).sort({ nextEvaluationAttemptAt: 1 }).limit(Math.max(1, Math.min(25, limit))).toArray();
+  const summary = { checked: submissions.length, completed: 0, deferred: 0, skipped: 0 };
+
+  for (const submission of submissions) {
+    // The lease is an atomic cross-instance lock. It prevents two cron
+    // invocations from compiling the same student's solution concurrently.
+    const claimed = await db.collection('exam_submissions').updateOne({
+      _id: submission._id,
+      evaluationPending: true,
+      evaluationRetryEligible: true,
+      $or: [
+        { evaluationRetryLeaseUntil: { $exists: false } },
+        { evaluationRetryLeaseUntil: { $lte: now } },
+      ],
+    }, { $set: { evaluationRetryLeaseUntil: new Date(Date.now() + RETRY_LEASE_MS) } });
+    if (!claimed.modifiedCount) { summary.skipped++; continue; }
+
+    try {
+      const [bank, exam] = await Promise.all([
+        db.collection('question_banks').findOne({ _id: String(submission.examId) }),
+        // Existing data contains both ObjectId and string exam keys. Matching
+        // their normalized server representation keeps retries compatible.
+        db.collection('exams').findOne({ $expr: { $eq: [{ $toString: '$_id' }, String(submission.examId)] } }),
+      ]);
+      if (!bank || !exam) throw new Error('Question bank or exam is unavailable.');
+      const grade = await gradeBank(bank, submission);
+      await db.collection('exam_submissions').updateOne({ _id: submission._id }, {
+        $set: { ...grade, evaluationError: null, evaluationRetryEligible: false, evaluationRetriedAt: new Date() },
+        $unset: { evaluationRetryLeaseUntil: '', nextEvaluationAttemptAt: '' },
+      });
+      await publishBankResult(db, { ...submission, ...grade }, bank, exam);
+      summary.completed++;
+    } catch (error) {
+      const attempts = Number(submission.evaluationRetryCount || 0) + 1;
+      const delay = Math.min(MAX_RETRY_DELAY_MS, RETRY_DELAY_MS * (2 ** Math.min(attempts, 6)));
+      await db.collection('exam_submissions').updateOne({ _id: submission._id }, {
+        $set: {
+          evaluationRetryCount: attempts,
+          evaluationError: 'Compiler service unavailable. Automatic retry scheduled.',
+          nextEvaluationAttemptAt: new Date(Date.now() + delay),
+        },
+        $unset: { evaluationRetryLeaseUntil: '' },
+      });
+      summary.deferred++;
+    }
+  }
+  return summary;
+}
 export function studentBank(bank) {
   if (bank.type === 'MCQ') return {source:'csv',type:'MCQ',revision:bank.revision,questions:bank.questions.map(({correct,...q})=>q)};
   if (bank.type === 'Mixed') {

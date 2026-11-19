@@ -1,6 +1,7 @@
 {
   "crons": [
-    { "path": "/api/auth/process-activations", "schedule": "0 4 * * *" }
+    { "path": "/api/auth/process-activations", "schedule": "0 4 * * *" },
+    { "path": "/api/auth/retry-pending-evaluations", "schedule": "* * * * *" }
   ],
   "rewrites": [
     {
