@@ -13,8 +13,17 @@ export async function retryPendingEvaluations(db, limit = 10) {
   const now = new Date();
   const submissions = await db.collection('exam_submissions').find({
     evaluationPending: true,
-    evaluationRetryEligible: true,
-    nextEvaluationAttemptAt: { $lte: now },
+    submissionReason: { $ne: 'proctor_limit' },
+    $and: [
+      { $or: [
+        { evaluationRetryEligible: true },
+        { evaluationError: { $in: ['Compiler service unavailable. Answers saved for retry.', 'Compiler service unavailable. Automatic retry scheduled.'] } },
+      ] },
+      { $or: [
+        { nextEvaluationAttemptAt: { $lte: now } },
+        { nextEvaluationAttemptAt: { $exists: false } },
+      ] },
+    ],
   }).sort({ nextEvaluationAttemptAt: 1 }).limit(Math.max(1, Math.min(25, limit))).toArray();
   const summary = { checked: submissions.length, completed: 0, deferred: 0, skipped: 0 };
 

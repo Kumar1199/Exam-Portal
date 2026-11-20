@@ -26,7 +26,6 @@ import AdminReports from './pages/admin/Reports';
 import AdminViolations from './pages/admin/Violations';
 import AdminBadges from './pages/admin/Badges';
 import AdminNotifications from './pages/admin/Notifications';
-import LiveMonitoring from './pages/admin/LiveMonitoring';
 import ActivateAccount from './pages/auth/ActivateAccount';
 
 function AppContent() {
@@ -81,7 +80,6 @@ function AppContent() {
         <Route path="badges" element={<AdminBadges />} />
         <Route path="achievements" element={<AdminBadges />} />
         <Route path="notifications" element={<AdminNotifications />} />
-        <Route path="monitoring" element={<LiveMonitoring />} />
       </Route>
 
       {/* Fallback */}

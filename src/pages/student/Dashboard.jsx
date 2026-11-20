@@ -5,8 +5,9 @@ import StatCard from '../../components/shared/StatCard';
 import { LoadingSkeleton } from '../../components/shared/LoadingSkeleton';
 import { ErrorState } from '../../components/shared/ErrorState';
 import { formatDate, getDaysUntil, getGradeColor, calculatePlacementIndex } from '../../utils/helpers';
+import { studentMatchesExam } from '../../utils/examAudience';
 import { useAuth } from '../../context/AuthContext';
-import { collection, getDocs, doc, getDoc, query, where } from '../../services/mongoDb.js';
+import { collection, getDocs, query, where } from '../../services/mongoDb.js';
 import { db } from '../../services/mongoDb.js';
 
 const ChartTip = ({ active, payload, label }) =>
@@ -57,8 +58,9 @@ export default function StudentDashboard() {
         };
 
         const fetchStudentDetails = async () => {
-          const docSnap = await getDoc(doc(db, 'students', rollNo));
-          return docSnap.exists() ? docSnap.data() : null;
+          const snap = await getDocs(query(collection(db, 'students'), where('rollNo', '==', rollNo)));
+          const row = snap.docs[0];
+          return row ? { id: row.id, ...row.data() } : null;
           try {
             const idRes = await fetch('/api/get-student-id-by-rollno', {
               method: 'POST',
@@ -93,45 +95,39 @@ export default function StudentDashboard() {
           }
         };
 
-        const [studentJson, statsJson, lc, gfg, cc, hr] = await Promise.all([
+        const [studentJson, examsSnap, resultsSnap, profilesResponse] = await Promise.all([
           fetchStudentDetails(),
-          safeFetch('/api/get-student-problems-count-dashboard'),
-          safeFetch('/api/get-leetcode-details-by-rollno'),
-          safeFetch('/api/get-geeksforgeeks-details-by-rollno'),
-          safeFetch('/api/get-codechef-details-by-rollno'),
-          safeFetch('/api/get-hackerrank-details-by-rollno')
+          getDocs(collection(db, 'exams')),
+          getDocs(query(collection(db, 'results'), where('rollNo', '==', rollNo))),
+          fetch('/api/proxy?path=coding-profiles', { headers: { Authorization: `Bearer ${localStorage.getItem('s360_token') || ''}` } })
         ]);
 
         // Unified Student Data Fetching (API -> Firestore -> Mock)
-        let finalStudentData = studentJson;
-        if (!finalStudentData) {
-          try {
-            const docRef = doc(db, 'students', rollNo);
-            const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
-              finalStudentData = docSnap.data();
-            }
-          } catch (e) { console.error("Firestore error:", e); }
-        }
+        const finalStudentData = studentJson;
 
-        const finalStats = statsJson || {};
+        if (!finalStudentData) throw new Error('Student profile was not found.');
+        const liveProfiles = profilesResponse.ok ? (await profilesResponse.json()).profiles || {} : {};
+        const numeric = value => Number.isFinite(Number(value)) ? Number(value) : 0;
+        const finalStats = {
+          total: Object.values(liveProfiles).reduce((sum, profile) => sum + numeric(profile?.totalSolved ?? profile?.totalProblems ?? profile?.solved), 0),
+          rank: liveProfiles.leetcode?.rank || liveProfiles.codeforces?.rank || null,
+          score: liveProfiles.codechef?.rating || 0,
+        };
 
         // Fetch upcoming exams and results from Firestore (Production source)
-        const examsSnap = await getDocs(collection(db, 'exams'));
         const examsData = examsSnap.docs
           .map(d => ({ id: d.id, ...d.data() }))
-          .filter(e => e.status === 'upcoming' || e.status === 'scheduled')
-          .sort((a, b) => new Date(a.date) - new Date(b.date));
+          .filter(e => studentMatchesExam(e, finalStudentData))
+          .filter(e => (e.status === 'upcoming' || e.status === 'scheduled') && new Date(e.scheduledAt || e.startAt || `${e.date || ''}T${e.time || '00:00'}`).getTime() > Date.now())
+          .sort((a, b) => new Date(a.scheduledAt || a.startAt || `${a.date || ''}T${a.time || '00:00'}`) - new Date(b.scheduledAt || b.startAt || `${b.date || ''}T${b.time || '00:00'}`));
         
         setUpcomingExams(examsData.slice(0, 3));
 
-        const resultsQuery = query(collection(db, 'results'), where('rollNo', '==', rollNo));
-        const resultsSnap = await getDocs(resultsQuery);
         const userResults = resultsSnap.docs
-          .map(d => d.data());
+          .map(d => ({ id: d.id, ...d.data() }));
         
         setMyResults(userResults);
-        setCodingProfiles({ leetcode: lc, gfg, codechef: cc, hackerrank: hr });
+        setCodingProfiles(liveProfiles);
 
         setStudentData(finalStudentData);
         setDashboardStats(finalStats);
@@ -143,6 +139,8 @@ export default function StudentDashboard() {
       }
     };
     fetchData();
+    const refresh = window.setInterval(fetchData, 60_000);
+    return () => window.clearInterval(refresh);
   }, [rollNo, retryCount]);
 
   const handleRetry = () => {
@@ -163,11 +161,13 @@ export default function StudentDashboard() {
     </div>
   );
 
-  const studentName = studentData?.first_name || user?.name || 'Student';
-  const studentDept = studentData?.branch?.[0] || 'No branch assigned';
-  const studentYear = studentData?.passout_year || '';
-  const studentRoll = studentData?.roll_no || rollNo;
+  const studentName = studentData?.name || studentData?.first_name || user?.name || 'Student';
+  const studentDept = Array.isArray(studentData?.branch) ? studentData.branch.join(', ') : studentData?.branch || studentData?.department || 'No branch assigned';
+  const studentYear = studentData?.passoutYear || studentData?.passout_year || '';
+  const studentRoll = studentData?.rollNo || studentData?.roll_no || rollNo;
   const placementIndex = calculatePlacementIndex(studentData, myResults);
+  const appearedExams = myResults.filter(result => result.status !== 'not_appeared').length;
+  const nextExamLabel = upcomingExams[0] ? formatDate(upcomingExams[0].scheduledAt || upcomingExams[0].startAt || upcomingExams[0].date) : 'Nothing scheduled';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -194,7 +194,7 @@ export default function StudentDashboard() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', marginTop: '0.875rem' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.8125rem', color: '#a1a1aa' }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
-            Active student
+            Active student · live data refreshes every minute
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.8125rem', color: '#a1a1aa' }}>
             <Star size={13} style={{ color: '#f59e0b' }} /> Top performer
@@ -207,8 +207,8 @@ export default function StudentDashboard() {
         <StatCard title="Total Problems"  value={dashboardStats?.total || 0} subtitle="Across all platforms" icon={Code} color="#f97316" trend="up" trendValue={`${dashboardStats?.easy || 0} Easy`} delay={0} />
         <StatCard title="Coding Rank"     value={dashboardStats?.rank ? `#${dashboardStats.rank}` : 'N/A'} subtitle="Global Rank" icon={Trophy} color="#06b6d4" trend="up" trendValue={`${dashboardStats?.score || 0} pts`} delay={0.08} />
         <StatCard title="PI Score"        value={`${placementIndex}/100`} subtitle="Placement Index" icon={Award} color="#10b981" trend={placementIndex >= 80 ? 'up' : placementIndex >= 65 ? 'none' : 'down'} trendValue={placementIndex >= 80 ? 'Excellent' : placementIndex >= 65 ? 'Good' : 'Needs work'} delay={0.12} />
-        <StatCard title="Active Courses"  value={studentData?.current_courses?.length || 0} subtitle="Currently Enrolled" icon={BookOpen} color="#f59e0b" trend="none" trendValue="" delay={0.16} />
-        <StatCard title="Upcoming Exams"  value={upcomingExams.length} subtitle="Next: May 20" icon={Calendar} color="#10b981" trend="up" trendValue="3 due" delay={0.24} />
+        <StatCard title="Exams Appeared"  value={appearedExams} subtitle="From your result records" icon={BookOpen} color="#f59e0b" trend="none" trendValue="Live" delay={0.16} />
+        <StatCard title="Upcoming Exams"  value={upcomingExams.length} subtitle={nextExamLabel} icon={Calendar} color="#10b981" trend="none" trendValue="Live" delay={0.24} />
       </div>
 
       {/* Bottom row */}

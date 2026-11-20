@@ -28,7 +28,6 @@ const adminNav = [
   { icon: Award,           label: 'Results',         path: '/admin/results' },
   { icon: BarChart3,       label: 'Reports',         path: '/admin/reports' },
   { icon: AlertTriangle,   label: 'Violations',      path: '/admin/violations' },
-  { icon: Activity,        label: 'Live Monitoring', path: '/admin/monitoring' },
   { icon: Star,            label: 'Badges',          path: '/admin/badges' },
   { icon: Bell,            label: 'Notifications',   path: '/admin/notifications' },
 ];
